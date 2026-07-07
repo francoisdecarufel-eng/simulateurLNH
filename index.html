@@ -1,0 +1,1583 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simulateur LNH Pro</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel for in-browser JSX transpilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        /* Custom scrollbar for better look */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5); 
+            border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(51, 65, 85, 0.8); 
+            border-radius: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: rgba(71, 85, 105, 1); 
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-300 font-sans antialiased">
+
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        // --- EFFECTIFS EXEMPLES POUR CHARGEMENT RAPIDE (DEMO) ---
+        const demoSkatersHome = `Nick SuzukiC89Two-Way Forward85889189889191
+Cole CaufieldAD89Sniper76948981919291
+Juraj SlafkovskýAG86Power Forward91878583858786
+Kirby DachC84Power Forward87848582848485
+Ivan DemidovAD87Playmaker79899380909294
+Alex NewhookAG83Playmaker80828480898486
+Phillip DanaultC85Two-Way Forward84828491858384
+Josh AndersonAD82Power Forward92827679878178
+Jake EvansC83Two-Way Forward82808188858180
+Alexandre TexierAG83Playmaker81838579868485
+Zachary BolducAG83Sniper80878378858684
+Michael MathesonDG86Offensive Defenseman83848883918788
+Noah DobsonDD88Two-Way Defenseman86878987888988
+Kaiden GuhleDG86Two-Way Defenseman88818289878281
+Lane HutsonDG90Offensive Defenseman74889487949495
+Alexandre CarrierDD83Defensive Defenseman82768087857879
+David ReinbacherDD84Two-Way Defenseman87798287848181`;
+
+        const demoGoaliesHome = `Samuel MontembeaultG85ButterflyElite8886878480
+Cayden PrimeauG81HybridStarter8381827974`;
+
+        const demoSkatersAway = `Auston MatthewsC94Sniper85978989909594
+Mitch MarnerAD92Playmaker70869788939396
+William NylanderAG90Sniper74909076949393
+John TavaresC87Two-Way Forward82898784798989
+Max DomiC84Playmaker76818873868587
+Tyler BertuzziAG84Power Forward87838179818383
+Calle JarnkrokAD81Two-Way Forward75817985837979
+David KampfC80Two-Way Forward79757687817376
+Matthew KniesAG82Power Forward85827977848181
+Ryan ReavesAD75Enforcer97706671736769
+Nick RobertsonAG79Sniper69857771858181
+Pontus HolmbergC78Two-Way Forward75767879817677
+Morgan RiellyDG88Offensive Defenseman79839183918990
+T.J. BrodieDD83Two-Way Defenseman77738189857581
+Jake McCabeDG82Two-Way Defenseman89767685817377
+Timothy LiljegrenDD81Offensive Defenseman79778183857981
+Simon BenoitDG79Defensive Defenseman87717181776971
+Ilya LyubushkinDD79Defensive Defenseman89737181766771`;
+
+        const demoGoaliesAway = `Ilya SamsonovG83HybridStarter8583817673
+Joseph WollG82ButterflyElite8483848177`;
+
+        function NHLSimulator() {
+          const [activeTab, setActiveTab] = useState('config'); // config, sim, results
+          const [configStep, setConfigStep] = useState(1); // 1: Paste/Import, 2: Trios & Chemistry
+          
+          // Custom Input States
+          const [homeTeamName, setHomeTeamName] = useState('Montréal');
+          const [homeColor, setHomeColor] = useState('#AF1E2D');
+          const [homeLogo, setHomeLogo] = useState('CH');
+          const [homeSkatersPaste, setHomeSkatersPaste] = useState('');
+          const [homeGoaliesPaste, setHomeGoaliesPaste] = useState('');
+
+          const [awayTeamName, setAwayTeamName] = useState('Toronto');
+          const [awayColor, setAwayColor] = useState('#00205B');
+          const [awayLogo, setAwayLogo] = useState('TOR');
+          const [awaySkatersPaste, setAwaySkatersPaste] = useState('');
+          const [awayGoaliesPaste, setAwayGoaliesPaste] = useState('');
+
+          // Parsed Player Pools
+          const [parsedPool, setParsedPool] = useState({
+            home: { skaters: [], goalies: [] },
+            away: { skaters: [], goalies: [] }
+          });
+
+          // Active Game Lines
+          const [lines, setLines] = useState({
+            home: {
+              forwards: { l1: [], l2: [], l3: [], l4: [] },
+              defense: { d1: [], d2: [], d3: [] },
+              goalies: { starter: null, backup: null }
+            },
+            away: {
+              forwards: { l1: [], l2: [], l3: [], l4: [] },
+              defense: { d1: [], d2: [], d3: [] },
+              goalies: { starter: null, backup: null }
+            }
+          });
+
+          // Intermission Screen & Statistics States
+          const [showIntermission, setShowIntermission] = useState(false);
+          const [intermissionPeriod, setIntermissionPeriod] = useState(1);
+
+          // Period-specific Stats
+          const createInitialPeriodStats = () => ({
+            shots: [0, 0],
+            goals: [0, 0],
+            chances: [0, 0],
+            dangerChances: [0, 0],
+            possession: [0, 0], // stored as seconds
+            hits: [0, 0],
+            blocks: [0, 0],
+            takeaways: [0, 0],
+            giveaways: [0, 0],
+            entries: [0, 0],
+            exits: [0, 0],
+            faceoffs: [0, 0], // wins
+            faceoffsTotal: 0,
+            ppGoals: [0, 0],
+            ppOpps: [0, 0],
+          });
+
+          const [periodStats, setPeriodStats] = useState([
+            createInitialPeriodStats(), // Period 1
+            createInitialPeriodStats(), // Period 2
+            createInitialPeriodStats(), // Period 3
+            createInitialPeriodStats()  // OT
+          ]);
+
+          // Simulation Engine State (Ref based)
+          const simRef = useRef({
+            status: 'idle', // idle, playing, paused, intermission, finished
+            period: 1,
+            time: 1200, // 20 mins * 60 secs
+            homeScore: 0,
+            awayScore: 0,
+            homeShots: 0,
+            awayShots: 0,
+            events: [],
+            currentLineHome: { f: 'l1', d: 'd1' },
+            currentLineAway: { f: 'l1', d: 'd1' },
+            stats: {
+              home: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } },
+              away: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } }
+            },
+            injuries: [],
+            homeGoaliePulled: false,
+            awayGoaliePulled: false,
+            goalsInLast6MinsHome: [], 
+            goalsInLast6MinsAway: [],
+            powerplay: { active: false, team: null, timeLeft: 0 }
+          });
+
+          const [uiState, setUiState] = useState({ ...simRef.current });
+          const [simSpeed, setSimSpeed] = useState(70); // ms per game-tick
+          const [isCopied, setIsCopied] = useState(null);
+          const [configTeamView, setConfigTeamView] = useState('home');
+
+          // --- LOGIQUE DE GÉNÉRATION DES TIRS (Ajustements Mathématiques) ---
+          const getOffensiveForce = (forwards, defensemen) => {
+            const f = forwards.filter(Boolean);
+            const d = defensemen.filter(Boolean);
+            const all = [...f, ...d];
+            if (all.length === 0) return 80;
+
+            const avg = (arr, key) => arr.length > 0 ? arr.reduce((sum, p) => sum + (p[key] || 80), 0) / arr.length : 80;
+            
+            const avgOffF = avg(f, 'off');
+            const avgSht = avg(all, 'sht');
+            const avgSka = avg(all, 'ska');
+            const avgPla = avg(all, 'pla');
+            const avgPhn = avg(all, 'phn');
+            const avgOffAll = avg(all, 'off');
+
+            let styleBonus = 0;
+            all.forEach(p => {
+              if(p.style && (p.style.includes('Sniper') || p.style.includes('Franc-tireur'))) styleBonus += 1.5;
+              if(p.style && (p.style.includes('Playmaker') || p.style.includes('Fabricant'))) styleBonus += 1.5;
+              if(p.style && (p.style.includes('Offensive Defenseman') || p.style.includes('Défenseur Offensif'))) styleBonus += 2;
+            });
+
+            return (avgOffF * 0.25) + (avgSht * 0.20) + (avgSka * 0.15) + (avgPla * 0.15) + (avgPhn * 0.10) + (avgOffAll * 0.15) + styleBonus;
+          };
+
+          const getDefensiveForce = (defensemen, forwards, goalie) => {
+            const d = defensemen.filter(Boolean);
+            const all = [...d, ...forwards.filter(Boolean)];
+            if (all.length === 0) return 80;
+
+            const avgDefD = d.length > 0 ? d.reduce((sum, p) => sum + (p.def || 80), 0) / d.length : 80;
+            const avgPhy = all.reduce((sum, p) => sum + (p.phy || 80), 0) / all.length;
+            const goaliePos = goalie ? (goalie.pos_g || 80) : 80;
+            const goalieCon = goalie ? (goalie.con || 80) : 80;
+
+            let styleBonus = 0;
+            d.forEach(p => {
+              if(p.style && (p.style.includes('Defensive') || p.style.includes('Défensif'))) styleBonus += 2.5;
+            });
+
+            return (avgDefD * 0.40) + (avgPhy * 0.20) + (goaliePos * 0.20) + (goalieCon * 0.20) + styleBonus;
+          };
+
+          // Deep Player Text Parser
+          const parsePastedRoster = (skatersText, goaliesText) => {
+            const parsedSkaters = [];
+            const parsedGoalies = [];
+
+            if (skatersText) {
+              const skaterLines = skatersText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+              skaterLines.forEach(line => {
+                const strictRegex = /^([A-Za-zÀ-ÿ\s\.\-\'\’]+?)\s*(C\/AD|C\/AG|C|AG|AD|DG|DD|D)\s*(\d{2,3})\s*(Two-Way Forward|Sniper|Power Forward|Playmaker|Two-Way Defenseman|Offensive Defenseman|Defensive Defenseman|Enforcer|Grinder|Bagarreur|Énergique|Polyvalent|Défensif|Fabricant|Franc-tireur|Robuste)\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})/i;
+                const match = line.match(strictRegex);
+
+                if (match) {
+                  const [, name, pos, ovr, style, phy, sht, pla, def, ska, off, phn] = match;
+                  parsedSkaters.push({
+                    id: Math.random().toString(36).substr(2, 9), name: name.trim(), pos: pos.toUpperCase(), ovr: parseInt(ovr),
+                    style: style.trim(), phy: parseInt(phy), sht: parseInt(sht), pla: parseInt(pla), def: parseInt(def),
+                    ska: parseInt(ska), off: parseInt(off), phn: parseInt(phn), age: 25, country: 'CAN'
+                  });
+                } else {
+                  const parts = line.split(/\t+| {2,}/).map(p => p.trim()).filter(p => p.length > 0);
+                  if (parts.length >= 11) {
+                    parsedSkaters.push({
+                      id: Math.random().toString(36).substr(2, 9), name: parts[0], pos: parts[1].toUpperCase(), ovr: parseInt(parts[2]) || 80,
+                      style: parts[3], phy: parseInt(parts[4]) || 80, sht: parseInt(parts[5]) || 80, pla: parseInt(parts[6]) || 80,
+                      def: parseInt(parts[7]) || 80, ska: parseInt(parts[8]) || 80, off: parseInt(parts[9]) || 80, phn: parseInt(parts[10]) || 80,
+                      age: 25, country: 'CAN'
+                    });
+                  }
+                }
+              });
+            }
+
+            if (goaliesText) {
+              const goalieLines = goaliesText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+              goalieLines.forEach(line => {
+                const strictGoalieRegex = /^([A-Za-zÀ-ÿ\s\.\-\'\’]+?)\s*(G)\s*(\d{2,3})\s*(Butterfly|Hybrid|Standup|Athletic|Papillon|Hybride|Athlétique)\s*(Elite|Starter|Backup|Franchise|Générationnel|Élite|Partant|Substitut)\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})/i;
+                const match = line.match(strictGoalieRegex);
+
+                if (match) {
+                  const [, name, pos, ovr, style, pot, ref, mit, pos_g, con, jeu] = match;
+                  parsedGoalies.push({
+                    id: Math.random().toString(36).substr(2, 9), name: name.trim(), pos: 'G', ovr: parseInt(ovr),
+                    style: style.trim(), pot: pot.trim(), ref: parseInt(ref), mit: parseInt(mit), pos_g: parseInt(pos_g),
+                    con: parseInt(con), jeu: parseInt(jeu), age: 26, country: 'CAN'
+                  });
+                } else {
+                  const parts = line.split(/\t+| {2,}/).map(p => p.trim()).filter(p => p.length > 0);
+                  if (parts.length >= 10) {
+                    parsedGoalies.push({
+                      id: Math.random().toString(36).substr(2, 9), name: parts[0], pos: 'G', ovr: parseInt(parts[2]) || 82,
+                      style: parts[3], pot: parts[4] || 'Partant', ref: parseInt(parts[5]) || 80, mit: parseInt(parts[6]) || 80,
+                      pos_g: parseInt(parts[7]) || 80, con: parseInt(parts[8]) || 80, jeu: parseInt(parts[9]) || 80,
+                      age: 26, country: 'CAN'
+                    });
+                  }
+                }
+              });
+            }
+            return { skaters: parsedSkaters, goalies: parsedGoalies };
+          };
+
+          const handleLoadDemo = () => {
+            setHomeSkatersPaste(demoSkatersHome);
+            setHomeGoaliesPaste(demoGoaliesHome);
+            setAwaySkatersPaste(demoSkatersAway);
+            setAwayGoaliesPaste(demoGoaliesAway);
+          };
+
+          const processImports = () => {
+            const homeParsed = parsePastedRoster(homeSkatersPaste, homeGoaliesPaste);
+            const awayParsed = parsePastedRoster(awaySkatersPaste, awayGoaliesPaste);
+            setParsedPool({ home: homeParsed, away: awayParsed });
+            clearLines('home');
+            clearLines('away');
+            setConfigStep(2);
+          };
+
+          const autoBuildLines = (teamId, poolData) => {
+            const skaters = [...poolData.skaters];
+            const goalies = [...poolData.goalies];
+
+            const fList = skaters.filter(p => ['C', 'AG', 'AD', 'C/AD', 'C/AG'].includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
+            const dList = skaters.filter(p => ['DG', 'DD', 'D'].includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
+            const gList = [...goalies].sort((a,b) => b.ovr - a.ovr);
+
+            const dummyF = (id) => ({ id, name: `Attaquant Remplaçant ${id}`, pos: 'C', ovr: 75, style: 'Polyvalent', phy: 75, sht: 75, pla: 75, def: 75, ska: 75, off: 75, phn: 75, age:25, country: 'CAN'});
+            const dummyD = (id) => ({ id, name: `Défenseur Remplaçant ${id}`, pos: 'D', ovr: 75, style: 'Polyvalent', phy: 75, sht: 75, pla: 75, def: 75, ska: 75, off: 75, phn: 75, age:25, country: 'CAN'});
+            const dummyG = (id) => ({ id, name: `Gardien Remplaçant ${id}`, pos: 'G', ovr: 75, style: 'Papillon', pot: 'Partant', ref: 75, mit: 75, pos_g: 75, con: 75, jeu: 75, age:25, country: 'CAN'});
+
+            const f = Array.from({ length: 12 }, (_, i) => fList[i] || dummyF(i + 1));
+            const d = Array.from({ length: 6 }, (_, i) => dList[i] || dummyD(i + 1));
+            const g = Array.from({ length: 2 }, (_, i) => gList[i] || dummyG(i + 1));
+
+            setLines(prev => ({
+              ...prev,
+              [teamId]: {
+                forwards: { l1: [f[0], f[1], f[2]], l2: [f[3], f[4], f[5]], l3: [f[6], f[7], f[8]], l4: [f[9], f[10], f[11]] },
+                defense: { d1: [d[0], d[1]], d2: [d[2], d[3]], d3: [d[4], d[5]] },
+                goalies: { starter: g[0], backup: g[1] }
+              }
+            }));
+          };
+
+          const clearLines = (teamId) => {
+            setLines(prev => ({
+              ...prev,
+              [teamId]: {
+                forwards: { l1: [null, null, null], l2: [null, null, null], l3: [null, null, null], l4: [null, null, null] },
+                defense: { d1: [null, null], d2: [null, null], d3: [null, null] },
+                goalies: { starter: null, backup: null }
+              }
+            }));
+          };
+
+          const isPlayerInLines = (teamId, playerId) => {
+            const t = lines[teamId];
+            for (const line of Object.values(t.forwards)) { if (line.find(p => p && p.id === playerId)) return true; }
+            for (const line of Object.values(t.defense)) { if (line.find(p => p && p.id === playerId)) return true; }
+            if (t.goalies.starter?.id === playerId || t.goalies.backup?.id === playerId) return true;
+            return false;
+          };
+
+          const handleTogglePlayer = (teamId, player) => {
+            const isF = ['C', 'AG', 'AD', 'C/AD', 'C/AG'].includes(player.pos);
+            const isD = ['DG', 'DD', 'D'].includes(player.pos);
+            const isG = player.pos === 'G';
+
+            setLines(prev => {
+              const newLines = JSON.parse(JSON.stringify(prev));
+              const t = newLines[teamId];
+
+              let removed = false;
+              if (isF) {
+                for (const key of Object.keys(t.forwards)) {
+                  const idx = t.forwards[key].findIndex(p => p && p.id === player.id);
+                  if (idx !== -1) { t.forwards[key][idx] = null; removed = true; break; }
+                }
+              } else if (isD) {
+                for (const key of Object.keys(t.defense)) {
+                  const idx = t.defense[key].findIndex(p => p && p.id === player.id);
+                  if (idx !== -1) { t.defense[key][idx] = null; removed = true; break; }
+                }
+              } else if (isG) {
+                if (t.goalies.starter?.id === player.id) { t.goalies.starter = null; removed = true; }
+                else if (t.goalies.backup?.id === player.id) { t.goalies.backup = null; removed = true; }
+              }
+
+              if (removed) return newLines;
+
+              if (isF) {
+                for (const key of ['l1', 'l2', 'l3', 'l4']) {
+                  const idx = t.forwards[key].findIndex(p => p === null);
+                  if (idx !== -1) { t.forwards[key][idx] = player; break; }
+                }
+              } else if (isD) {
+                for (const key of ['d1', 'd2', 'd3']) {
+                   const idx = t.defense[key].findIndex(p => p === null);
+                   if (idx !== -1) { t.defense[key][idx] = player; break; }
+                }
+              } else if (isG) {
+                if (t.goalies.starter === null) t.goalies.starter = player;
+                else if (t.goalies.backup === null) t.goalies.backup = player;
+              }
+
+              return newLines;
+            });
+          };
+
+          const resetSimState = () => {
+            const initStats = (teamId) => {
+              const s = { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } };
+              const allSkaters = [
+                ...lines[teamId].forwards.l1, ...lines[teamId].forwards.l2, ...lines[teamId].forwards.l3, ...lines[teamId].forwards.l4,
+                ...lines[teamId].defense.d1, ...lines[teamId].defense.d2, ...lines[teamId].defense.d3
+              ];
+              const allGoalies = [lines[teamId].goalies.starter, lines[teamId].goalies.backup].filter(Boolean);
+
+              allSkaters.forEach(p => s.skaters[p.id] = { gp:1, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0 });
+              allGoalies.forEach(p => s.goalies[p.id] = { gp:1, mins:0, w:0, l:0, otl:0, sa:0, sv:0, ga:0 });
+              return s;
+            };
+
+            simRef.current = {
+              status: 'idle', period: 1, time: 1200, homeScore: 0, awayScore: 0, homeShots: 0, awayShots: 0,
+              events: [{ id: Date.now(), time: '20:00', period: 1, type: 'info', text: 'Bienvenue au Centre de simulation EA Pro. Match prêt.' }],
+              currentLineHome: { f: 'l1', d: 'd1' }, currentLineAway: { f: 'l1', d: 'd1' },
+              stats: { home: initStats('home'), away: initStats('away') }, injuries: [], homeGoaliePulled: false, awayGoaliePulled: false,
+              goalsInLast6MinsHome: [], goalsInLast6MinsAway: [], powerplay: { active: false, team: null, timeLeft: 0 }
+            };
+
+            setPeriodStats([createInitialPeriodStats(), createInitialPeriodStats(), createInitialPeriodStats(), createInitialPeriodStats()]);
+            setShowIntermission(false);
+            setUiState({ ...simRef.current });
+          };
+
+          const getPlayersOnIce = (teamId, role) => {
+            const lineInfo = teamId === 'home' ? simRef.current.currentLineHome : simRef.current.currentLineAway;
+            if (role === 'f') return lines[teamId].forwards[lineInfo.f].filter(Boolean);
+            if (role === 'd') return lines[teamId].defense[lineInfo.d].filter(Boolean);
+            if (role === 'g') {
+              const pulled = teamId === 'home' ? simRef.current.homeGoaliePulled : simRef.current.awayGoaliePulled;
+              return pulled ? lines[teamId].goalies.backup : lines[teamId].goalies.starter;
+            }
+            return null;
+          };
+
+          const formatTime = (seconds) => {
+            const m = Math.floor(seconds / 60);
+            const s = seconds % 60;
+            return `${m}:${s < 10 ? '0' : ''}${s}`;
+          };
+
+          const addEvent = (type, text, team = null) => {
+            const e = { id: Math.random(), time: formatTime(simRef.current.time), period: simRef.current.period, type, text, team };
+            simRef.current.events.unshift(e);
+            if (simRef.current.events.length > 50) simRef.current.events.pop();
+          };
+
+          const processTick = () => {
+            const s = simRef.current;
+            if (s.status !== 'playing') return;
+
+            const pIndex = s.period - 1;
+
+            if (s.time <= 0) {
+              if (s.period < 3 || s.homeScore === s.awayScore) {
+                s.status = 'intermission';
+                setIntermissionPeriod(s.period);
+                setShowIntermission(true);
+                addEvent('info', `Fin de la période ${s.period}. Les équipes retournent au vestiaire.`);
+                setUiState({ ...s });
+                return;
+              } else {
+                s.status = 'finished';
+                addEvent('info', `Fin du match! Marque finale: ${homeTeamName} ${s.homeScore} - ${s.awayScore} ${awayTeamName}`);
+                finalizeGame();
+                setUiState({ ...s });
+                return;
+              }
+            }
+
+            s.time--;
+
+            if (s.powerplay.active) {
+              s.powerplay.timeLeft--;
+              if (s.powerplay.timeLeft <= 0) {
+                s.powerplay.active = false;
+                s.powerplay.team = null;
+                addEvent('info', "Fin de la punition. Les équipes retournent à égalité numérique.");
+              }
+            }
+
+            setPeriodStats(prev => {
+              const updated = [...prev];
+              const pStats = { ...updated[pIndex] };
+              const controlRoll = Math.random();
+              const hAtt = getPlayersOnIce('home', 'f');
+              const hDef = getPlayersOnIce('home', 'd');
+              const aAtt = getPlayersOnIce('away', 'f');
+              const aDef = getPlayersOnIce('away', 'd');
+
+              const homeOff = hAtt.reduce((sum, p) => sum + p.off, 0) + hDef.reduce((sum, p) => sum + p.off, 0);
+              const awayOff = aAtt.reduce((sum, p) => sum + p.off, 0) + aDef.reduce((sum, p) => sum + p.off, 0);
+              const homePossProb = homeOff / (homeOff + awayOff);
+
+              if (controlRoll < homePossProb) pStats.possession[0]++; else pStats.possession[1]++;
+              updated[pIndex] = pStats;
+              return updated;
+            });
+
+            ['home', 'away'].forEach(tid => {
+              const f = getPlayersOnIce(tid, 'f');
+              const d = getPlayersOnIce(tid, 'd');
+              const g = getPlayersOnIce(tid, 'g');
+              [...f, ...d].forEach(p => s.stats[tid].skaters[p.id].toi++);
+              if(g) s.stats[tid].goalies[g.id].mins += (1/60);
+            });
+
+            if (s.time % 45 === 0 && s.time !== 1200) {
+              const linesArr = ['l1', 'l2', 'l3', 'l4'];
+              const dArr = ['d1', 'd2', 'd3'];
+              s.currentLineHome = { f: linesArr[Math.floor(Math.random() * 4)], d: dArr[Math.floor(Math.random() * 3)] };
+              s.currentLineAway = { f: linesArr[Math.floor(Math.random() * 4)], d: dArr[Math.floor(Math.random() * 3)] };
+            }
+
+            const eventRoll = Math.random();
+            if (eventRoll < 0.055) {
+              const posRoll = Math.random();
+              const attTeam = posRoll > 0.5 ? 'home' : 'away';
+              const defTeam = attTeam === 'home' ? 'away' : 'home';
+              const attIdx = attTeam === 'home' ? 0 : 1;
+              const defIdx = attTeam === 'home' ? 1 : 0;
+
+              const attF = getPlayersOnIce(attTeam, 'f');
+              const attD = getPlayersOnIce(attTeam, 'd');
+              const defF = getPlayersOnIce(defTeam, 'f');
+              const defD = getPlayersOnIce(defTeam, 'd');
+              const defG = getPlayersOnIce(defTeam, 'g');
+              
+              if(!defG) return; 
+
+              const offForce = getOffensiveForce(attF, attD);
+              const defForce = getDefensiveForce(defD, defF, defG);
+              
+              let shotThreshold = 0.55; 
+              shotThreshold += ((offForce - defForce) * 0.015);
+              
+              const scoreDiff = attTeam === 'home' ? s.homeScore - s.awayScore : s.awayScore - s.homeScore;
+              if (scoreDiff >= 2) shotThreshold *= 0.90; 
+              else if (scoreDiff <= -3) shotThreshold *= 1.25; 
+              else if (scoreDiff <= -2) shotThreshold *= 1.15; 
+
+              if (s.period === 1) shotThreshold *= 0.85; 
+              else shotThreshold *= 1.05;
+
+              const lineFactors = { l1: 1.25, l2: 1.10, l3: 0.90, l4: 0.70 };
+              const currentLineId = attTeam === 'home' ? s.currentLineHome.f : s.currentLineAway.f;
+              shotThreshold *= (lineFactors[currentLineId] || 1.0);
+
+              const reboundFactor = (100 - defG.con) * 0.002;
+              shotThreshold += reboundFactor;
+              shotThreshold = Math.max(0.20, Math.min(0.85, shotThreshold));
+
+              const actionRoll = Math.random();
+
+              if (actionRoll < shotThreshold) {
+                const isZoneEntrySuccess = Math.random() < (offForce / (offForce + defForce + 15));
+                setPeriodStats(prev => {
+                  const updated = [...prev];
+                  const ps = { ...updated[pIndex] };
+                  ps.entries[attIdx] += 1;
+                  if (isZoneEntrySuccess) ps.exits[defIdx] += 1;
+                  updated[pIndex] = ps;
+                  return updated;
+                });
+
+                if (isZoneEntrySuccess) {
+                  const shotQuality = (offForce / defForce) * Math.random();
+                  const isHighDanger = shotQuality > 1.15;
+
+                  setPeriodStats(prev => {
+                    const updated = [...prev];
+                    const ps = { ...updated[pIndex] };
+                    ps.chances[attIdx] += 1;
+                    if (isHighDanger) ps.dangerChances[attIdx] += 1;
+                    updated[pIndex] = ps;
+                    return updated;
+                  });
+
+                  const isBlocked = Math.random() < (defForce / 250);
+                  if (isBlocked) {
+                    setPeriodStats(prev => {
+                      const updated = [...prev];
+                      const ps = { ...updated[pIndex] };
+                      ps.blocks[defIdx] += 1;
+                      updated[pIndex] = ps;
+                      return updated;
+                    });
+                    return;
+                  }
+
+                  if (attTeam === 'home') s.homeShots++; else s.awayShots++;
+                  s.stats[defTeam].goalies[defG.id].sa++;
+                  const shooter = attF[Math.floor(Math.random() * attF.length)];
+                  s.stats[attTeam].skaters[shooter.id].shots++;
+
+                  setPeriodStats(prev => {
+                    const updated = [...prev];
+                    const ps = { ...updated[pIndex] };
+                    ps.shots[attIdx] += 1;
+                    updated[pIndex] = ps;
+                    return updated;
+                  });
+
+                  const goalieSkill = defG.ovr / 100;
+                  let saveProb = 0.88 + (goalieSkill * 0.08);
+                  if (isHighDanger) saveProb -= 0.16;
+
+                  const goalDistribution = [0.05, 0.15, 0.25, 0.30, 0.15, 0.08, 0.03, 0.01]; 
+                  const distributionTweak = goalDistribution[s.homeScore + s.awayScore] || 0.02;
+                  
+                  if (Math.random() > (saveProb + (distributionTweak * 0.1))) {
+                    if (attTeam === 'home') s.homeScore++; else s.awayScore++;
+                    s.stats[defTeam].goalies[defG.id].ga++;
+                    s.stats[attTeam].skaters[shooter.id].g++;
+                    s.stats[attTeam].skaters[shooter.id].pts++;
+
+                    let assistText = '';
+                    let passers = attF.concat(attD).filter(p => p.id !== shooter.id);
+                    passers = passers.sort(() => 0.5 - Math.random()).slice(0, 2);
+                    passers.forEach(p => {
+                      if (Math.random() > 0.3) {
+                        s.stats[attTeam].skaters[p.id].a++;
+                        s.stats[attTeam].skaters[p.id].pts++;
+                        assistText += `${p.name}, `;
+                      }
+                    });
+
+                    [...attF, ...attD].forEach(p => s.stats[attTeam].skaters[p.id].pm++);
+                    [...defF, ...defD].forEach(p => s.stats[defTeam].skaters[p.id].pm--);
+
+                    setPeriodStats(prev => {
+                      const updated = [...prev];
+                      const ps = { ...updated[pIndex] };
+                      ps.goals[attIdx] += 1;
+                      updated[pIndex] = ps;
+                      return updated;
+                    });
+
+                    let msg = `🥅 BUT ${attTeam === 'home' ? homeTeamName : awayTeamName}! ${shooter.name}`;
+                    if (assistText) msg += ` (Passes: ${assistText.slice(0, -2)})`;
+                    addEvent('goal', msg, attTeam);
+
+                    checkGoaliePull(defTeam);
+                  } else {
+                    s.stats[defTeam].goalies[defG.id].sv++;
+                  }
+                }
+              } 
+              else if (actionRoll < 0.78) {
+                const hitter = defD.concat(defF)[Math.floor(Math.random() * (defD.length + defF.length))];
+                const victim = attF[Math.floor(Math.random() * attF.length)];
+                
+                s.stats[defTeam].team.hits++;
+                s.stats[defTeam].skaters[hitter.id].hits++;
+
+                setPeriodStats(prev => {
+                  const updated = [...prev];
+                  const ps = { ...updated[pIndex] };
+                  ps.hits[defIdx] += 1;
+                  updated[pIndex] = ps;
+                  return updated;
+                });
+
+                if (Math.random() < 0.003 * (hitter.phy / 60)) {
+                  const dur = Math.floor(Math.random() * 8) + 1;
+                  const types = ['Haut du corps', 'Bas du corps', 'Commotion', 'Coupure'];
+                  s.injuries.push({
+                    team: attTeam === 'home' ? homeTeamName : awayTeamName,
+                    name: victim.name,
+                    type: types[Math.floor(Math.random() * types.length)],
+                    duration: dur
+                  });
+                  addEvent('injury', `🚑 BLESSURE: ${victim.name} quitte pour le vestiaire.`, attTeam);
+                }
+              } 
+              else if (actionRoll < 0.90) {
+                setPeriodStats(prev => {
+                  const updated = [...prev];
+                  const ps = { ...updated[pIndex] };
+                  ps.takeaways[defIdx] += 1;
+                  ps.giveaways[attIdx] += 1;
+                  updated[pIndex] = ps;
+                  return updated;
+                });
+              }
+              else {
+                const penaltyGuy = defD.concat(defF)[Math.floor(Math.random() * (defD.length + defF.length))];
+                s.stats[defTeam].team.pim += 2;
+                s.stats[defTeam].skaters[penaltyGuy.id].pim += 2;
+                
+                s.powerplay.active = true;
+                s.powerplay.team = attTeam;
+                s.powerplay.timeLeft = 120; 
+
+                setPeriodStats(prev => {
+                  const updated = [...prev];
+                  const ps = { ...updated[pIndex] };
+                  ps.ppOpps[attIdx] += 1;
+                  updated[pIndex] = ps;
+                  return updated;
+                });
+
+                addEvent('penalty', `🟦 PUNITION: ${penaltyGuy.name} (2 min pour obstruction)`, defTeam);
+              }
+            }
+
+            if (s.time % 30 === 0) {
+              simulateFaceoff(pIndex);
+            }
+
+            if (s.time % 5 === 0) {
+              setUiState({ ...s });
+            }
+          };
+
+          const simulateFaceoff = (pIndex) => {
+            const s = simRef.current;
+            const hCenter = getPlayersOnIce('home', 'f').find(p => p.pos.includes('C')) || lines.home.forwards.l1[0];
+            const aCenter = getPlayersOnIce('away', 'f').find(p => p.pos.includes('C')) || lines.away.forwards.l1[0];
+
+            const hStr = hCenter ? hCenter.pla + hCenter.phy : 160;
+            const aStr = aCenter ? aCenter.pla + aCenter.phy : 160;
+
+            const winProb = hStr / (hStr + aStr);
+            const homeWin = Math.random() < winProb;
+
+            setPeriodStats(prev => {
+              const updated = [...prev];
+              const ps = { ...updated[pIndex] };
+              ps.faceoffsTotal += 1;
+              if (homeWin) ps.faceoffs[0] += 1; else ps.faceoffs[1] += 1;
+              updated[pIndex] = ps;
+              return updated;
+            });
+
+            if (homeWin) s.stats.home.team.foWins++; else s.stats.away.team.foWins++;
+          };
+
+          const checkGoaliePull = (teamId) => {
+            const s = simRef.current;
+            if (s[`${teamId}GoaliePulled`]) return;
+
+            const oppScore = teamId === 'home' ? s.awayScore : s.homeScore;
+            const myScore = teamId === 'home' ? s.homeScore : s.awayScore;
+            const gap = oppScore - myScore;
+
+            let pull = gap >= 5;
+
+            const timeHistoryStr = teamId === 'home' ? 'goalsInLast6MinsHome' : 'goalsInLast6MinsAway';
+            const currentAbsoluteTime = (s.period * 1200) - s.time;
+            s[timeHistoryStr].push(currentAbsoluteTime);
+
+            s[timeHistoryStr] = s[timeHistoryStr].filter(t => currentAbsoluteTime - t <= 360);
+            if (s[timeHistoryStr].length >= 3) pull = true;
+
+            if (pull) {
+              s[`${teamId}GoaliePulled`] = true;
+              addEvent('info', `🔄 RETRAIT DU GARDIEN: ${teamId === 'home' ? homeTeamName : awayTeamName} remplace son partant suite à la déroute.`, teamId);
+            }
+          };
+
+          const finalizeGame = () => {
+            const s = simRef.current;
+            ['home', 'away'].forEach(tid => {
+              const roster = [
+                ...lines[tid].forwards.l1, ...lines[tid].forwards.l2, ...lines[tid].forwards.l3, ...lines[tid].forwards.l4,
+                ...lines[tid].defense.d1, ...lines[tid].defense.d2, ...lines[tid].defense.d3
+              ];
+
+              roster.forEach(p => {
+                const skaterStats = s.stats[tid].skaters[p.id];
+                if (!skaterStats) return;
+
+                const roll = Math.random();
+                if (skaterStats.pts >= 2 || skaterStats.pm >= 2) {
+                  if (roll < 0.10) { 
+                    p.ovr = Math.min(99, p.ovr + 1);
+                    p.off = Math.min(99, p.off + 1);
+                    p.sht = Math.min(99, p.sht + 1);
+                  }
+                } else if (skaterStats.pm <= -3) {
+                  if (roll < 0.10) { 
+                    p.ovr = Math.max(60, p.ovr - 1);
+                    p.def = Math.max(60, p.def - 1);
+                  }
+                }
+              });
+            });
+          };
+
+          useEffect(() => {
+            let interval = null;
+            if (uiState.status === 'playing') {
+              interval = setInterval(processTick, simSpeed);
+            } else {
+              clearInterval(interval);
+            }
+            return () => clearInterval(interval);
+          }, [uiState.status, simSpeed]);
+
+          const toggleSim = () => {
+            const s = simRef.current;
+            if (s.status === 'playing') s.status = 'paused';
+            else s.status = 'playing';
+            setUiState({ ...s });
+          };
+
+          const handleStartNextPeriod = () => {
+            const s = simRef.current;
+            s.period++;
+            s.time = s.period > 3 ? 300 : 1200; 
+            s.status = 'playing';
+            setShowIntermission(false);
+            setUiState({ ...s });
+            addEvent('info', `Début de la période ${s.period}. Rondelle déposée au centre.`);
+          };
+
+          const handleCopyTable = (tableId) => {
+            const tableElement = document.getElementById(tableId);
+            if (!tableElement) return;
+
+            let range = document.createRange();
+            range.selectNode(tableElement);
+            window.getSelection().removeAllRanges();
+            window.getSelection().addRange(range);
+            
+            try {
+              document.execCommand('copy');
+              setIsCopied(tableId);
+              setTimeout(() => setIsCopied(null), 2500);
+            } catch (err) {
+              console.error("Impossible de copier", err);
+            }
+            window.getSelection().removeAllRanges();
+          };
+
+          const renderConfigTab = () => {
+            if (configStep === 1) {
+              return (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-white flex items-center">
+                        <i className="fas fa-shield-halved w-5 h-5 flex justify-center items-center mr-2 text-blue-500"></i> Étape 1 : Importer les Alignements Réels
+                      </h2>
+                      <p className="text-slate-400 text-sm mt-1">Collez vos données directement issues de feuilles de calculs ou du web. Le moteur déchiffrera automatiquement.</p>
+                    </div>
+                    <button 
+                      onClick={handleLoadDemo}
+                      className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-blue-400 border border-slate-700 rounded-lg text-sm font-semibold flex items-center transition-all"
+                    >
+                      <i className="fas fa-bolt w-4 h-4 mr-2 text-yellow-500 text-center"></i> Charger l'exemple de démo
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    {/* HOME TEAM PASTE */}
+                    <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-4">
+                      <div className="flex items-center space-x-3 pb-3 border-b border-slate-800">
+                        <input 
+                          type="text" 
+                          value={homeLogo} 
+                          onChange={e => setHomeLogo(e.target.value)} 
+                          className="w-10 h-10 bg-slate-800 border border-slate-700 text-center font-bold text-white rounded-lg focus:outline-none focus:border-blue-500" 
+                          placeholder="CH"
+                        />
+                        <div className="flex-1">
+                          <input 
+                            type="text" 
+                            value={homeTeamName} 
+                            onChange={e => setHomeTeamName(e.target.value)} 
+                            className="bg-transparent border-b border-transparent hover:border-slate-700 focus:border-blue-500 text-lg font-bold text-white focus:outline-none w-full" 
+                            placeholder="Équipe Domicile"
+                          />
+                          <input 
+                            type="color" 
+                            value={homeColor} 
+                            onChange={e => setHomeColor(e.target.value)} 
+                            className="w-8 h-4 bg-transparent cursor-pointer rounded block mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-400 tracking-wider block mb-1">Attaquants et Défenseurs</label>
+                        <textarea 
+                          value={homeSkatersPaste}
+                          onChange={e => setHomeSkatersPaste(e.target.value)}
+                          className="w-full h-48 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-700"
+                          placeholder="Exemple: Nick SuzukiC89Two-Way Forward85889189889191..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-400 tracking-wider block mb-1">Gardiens (2 recommandés)</label>
+                        <textarea 
+                          value={homeGoaliesPaste}
+                          onChange={e => setHomeGoaliesPaste(e.target.value)}
+                          className="w-full h-24 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-700"
+                          placeholder="Exemple: Samuel MontembeaultG85ButterflyElite8886878480..."
+                        />
+                      </div>
+                    </div>
+
+                    {/* AWAY TEAM PASTE */}
+                    <div className="bg-slate-900 border border-slate-800 p-5 rounded-2xl space-y-4">
+                      <div className="flex items-center space-x-3 pb-3 border-b border-slate-800">
+                        <input 
+                          type="text" 
+                          value={awayLogo} 
+                          onChange={e => setAwayLogo(e.target.value)} 
+                          className="w-10 h-10 bg-slate-800 border border-slate-700 text-center font-bold text-white rounded-lg focus:outline-none focus:border-blue-500" 
+                          placeholder="TOR"
+                        />
+                        <div className="flex-1">
+                          <input 
+                            type="text" 
+                            value={awayTeamName} 
+                            onChange={e => setAwayTeamName(e.target.value)} 
+                            className="bg-transparent border-b border-transparent hover:border-slate-700 focus:border-blue-500 text-lg font-bold text-white focus:outline-none w-full" 
+                            placeholder="Équipe Visiteur"
+                          />
+                          <input 
+                            type="color" 
+                            value={awayColor} 
+                            onChange={e => setAwayColor(e.target.value)} 
+                            className="w-8 h-4 bg-transparent cursor-pointer rounded block mt-1"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-400 tracking-wider block mb-1">Attaquants et Défenseurs</label>
+                        <textarea 
+                          value={awaySkatersPaste}
+                          onChange={e => setAwaySkatersPaste(e.target.value)}
+                          className="w-full h-48 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-700"
+                          placeholder="Exemple: Auston MatthewsC94Sniper85978989909594..."
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-xs font-bold uppercase text-slate-400 tracking-wider block mb-1">Gardiens (2 recommandés)</label>
+                        <textarea 
+                          value={awayGoaliesPaste}
+                          onChange={e => setAwayGoaliesPaste(e.target.value)}
+                          className="w-full h-24 bg-slate-950 border border-slate-800 rounded-xl p-3 font-mono text-xs text-slate-300 focus:outline-none focus:border-blue-500 placeholder-slate-700"
+                          placeholder="Exemple: Ilya SamsonovG83HybridStarter8583817673..."
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center pt-4">
+                    <button 
+                      onClick={processImports}
+                      disabled={(!homeSkatersPaste && !awaySkatersPaste)}
+                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(37,99,235,0.4)] transition-all flex items-center space-x-2"
+                    >
+                      <span>DÉCODER ET CRÉER LES ALIGNEMENTS</span>
+                      <i className="fas fa-arrow-right w-5 h-5 flex items-center"></i>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
+            if (configStep === 2) {
+              const activeTeamId = configTeamView;
+              const pool = parsedPool[activeTeamId];
+              const tLines = lines[activeTeamId];
+              const color = activeTeamId === 'home' ? homeColor : awayColor;
+              const logo = activeTeamId === 'home' ? homeLogo : awayLogo;
+              const tName = activeTeamId === 'home' ? homeTeamName : awayTeamName;
+
+              return (
+                <div className="space-y-6 animate-in fade-in duration-300">
+                  <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                    <div>
+                      <h2 className="text-xl font-bold text-white flex items-center">
+                        <i className="fas fa-users w-5 h-5 mr-2 text-emerald-500 flex justify-center items-center"></i> Étape 2 : Assemblage par Sélection
+                      </h2>
+                      <p className="text-slate-400 text-sm mt-1">Cochez les joueurs pour les insérer automatiquement dans le premier emplacement vide.</p>
+                    </div>
+                    <div className="flex space-x-3">
+                      <button 
+                        onClick={() => setConfigStep(1)}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg text-sm text-white transition-all"
+                      >
+                        Retour
+                      </button>
+                      <button 
+                        onClick={() => { autoBuildLines('home', parsedPool.home); autoBuildLines('away', parsedPool.away); }}
+                        className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-emerald-400 border border-slate-700 rounded-lg text-sm flex items-center transition-all"
+                      >
+                        <i className="fas fa-rotate w-4 h-4 mr-2"></i> Remplissage Auto
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center space-x-4 mb-2">
+                    <button 
+                      onClick={() => setConfigTeamView('home')} 
+                      className={`px-8 py-3 rounded-xl font-bold text-sm transition-all border ${configTeamView === 'home' ? 'bg-slate-800 text-white border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800/60'}`}
+                    >
+                      Équipe Domicile ({homeTeamName})
+                    </button>
+                    <button 
+                      onClick={() => setConfigTeamView('away')} 
+                      className={`px-8 py-3 rounded-xl font-bold text-sm transition-all border ${configTeamView === 'away' ? 'bg-slate-800 text-white border-blue-500 shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-slate-900 text-slate-400 border-slate-800 hover:bg-slate-800/60'}`}
+                    >
+                      Équipe Visiteur ({awayTeamName})
+                    </button>
+                  </div>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col h-[650px]">
+                       <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
+                         <div className="flex items-center space-x-3">
+                           <div className="w-8 h-8 rounded-full flex items-center justify-center font-bold text-white shadow-lg text-xs" style={{ backgroundColor: color }}>{logo}</div>
+                           <h3 className="font-bold text-white uppercase text-sm">Effectif Complet</h3>
+                         </div>
+                         <button onClick={() => clearLines(activeTeamId)} className="text-xs text-red-400 hover:text-red-300 flex items-center px-3 py-1.5 bg-red-950/30 rounded-lg transition-colors"><i className="fas fa-trash w-3.5 h-3.5 mr-1.5 flex items-center justify-center"></i> Vider l'alignement</button>
+                       </div>
+                       
+                       <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
+                         {(() => {
+                           const posOrder = { 'C': 1, 'C/AG': 2, 'CAG': 2, 'C/AD': 3, 'CAD': 3, 'AG': 4, 'AD': 5, 'D': 6, 'DG': 7, 'DD': 8, 'G': 9 };
+                           const getPosOrder = (pos) => posOrder[pos] || 99;
+                           const sortedPool = [...pool.skaters, ...pool.goalies].sort((a, b) => getPosOrder(a.pos) - getPosOrder(b.pos));
+                           
+                           return sortedPool.map(p => {
+                             const isSel = isPlayerInLines(activeTeamId, p.id);
+                             return (
+                               <div 
+                                 key={p.id} 
+                                 onClick={() => handleTogglePlayer(activeTeamId, p)} 
+                                 className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer border transition-all ${isSel ? 'bg-blue-900/10 border-blue-500/50 hover:bg-blue-900/20' : 'bg-slate-950 border-slate-800/80 hover:border-slate-600'}`}
+                               >
+                                 <div className="flex items-center space-x-3 truncate">
+                                   {isSel ? <i className="far fa-square-check w-5 h-5 text-blue-500 flex items-center justify-center flex-shrink-0 text-xl"></i> : <i className="far fa-square w-5 h-5 text-slate-600 flex items-center justify-center flex-shrink-0 text-xl"></i>}
+                                   <div className="truncate">
+                                     <span className={`text-sm block truncate ${isSel ? 'text-white font-bold' : 'text-slate-300 font-medium'}`}>{p.name}</span>
+                                   </div>
+                                 </div>
+                                 <div className="flex items-center space-x-3 ml-2 flex-shrink-0">
+                                   <span className="text-[10px] uppercase font-black bg-slate-800 px-2 py-0.5 rounded text-slate-400">{p.pos}</span>
+                                   <span className="text-sm font-black text-emerald-400">{p.ovr}</span>
+                                 </div>
+                               </div>
+                             )
+                           });
+                         })()}
+                       </div>
+                    </div>
+
+                    <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col h-[650px] overflow-y-auto custom-scrollbar">
+                      <h3 className="font-bold text-white uppercase text-sm mb-5 flex items-center">
+                        <i className="fas fa-shield-halved w-4 h-4 mr-2 text-slate-400 flex items-center justify-center"></i>
+                        Tableau de Profondeur ({tName})
+                      </h3>
+                      
+                      <h4 className="text-xs font-bold text-slate-500 mb-3 border-b border-slate-800 pb-1.5 uppercase tracking-widest">Attaquants</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                        {['l1', 'l2', 'l3', 'l4'].map((lKey, i) => (
+                           <div key={lKey} className="bg-slate-950 rounded-xl p-3 border border-slate-800/60 shadow-inner">
+                             <div className="text-[10px] text-blue-500 font-bold mb-2 uppercase tracking-wider flex items-center">
+                               <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mr-2"></span> Trio {i+1}
+                             </div>
+                             <div className="space-y-1.5">
+                               {[0,1,2].map(slot => {
+                                 const p = tLines.forwards[lKey][slot];
+                                 return (
+                                   <div 
+                                     key={slot} 
+                                     onClick={() => p && handleTogglePlayer(activeTeamId, p)} 
+                                     className={`text-xs p-2 rounded-lg flex justify-between items-center transition-colors ${p ? 'bg-slate-800 text-white cursor-pointer hover:bg-red-950/60 hover:text-red-200' : 'bg-slate-900/50 border border-dashed border-slate-700 text-slate-600'}`}
+                                   >
+                                     {p ? <span className="truncate pr-2">{p.name} <span className="text-slate-400 ml-1 text-[10px]">({p.pos})</span></span> : <span>Emplacement vide</span>}
+                                     {p && <span className="text-emerald-400 font-black">{p.ovr}</span>}
+                                   </div>
+                                 )
+                               })}
+                             </div>
+                           </div>
+                        ))}
+                      </div>
+                      
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-500 mb-3 border-b border-slate-800 pb-1.5 uppercase tracking-widest">Défenseurs</h4>
+                          <div className="space-y-3">
+                            {['d1', 'd2', 'd3'].map((dKey, i) => (
+                               <div key={dKey} className="bg-slate-950 rounded-xl p-3 border border-slate-800/60 shadow-inner">
+                                 <div className="text-[10px] text-emerald-500 font-bold mb-2 uppercase tracking-wider flex items-center">
+                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-2"></span> Paire {i+1}
+                                 </div>
+                                 <div className="space-y-1.5">
+                                   {[0,1].map(slot => {
+                                     const p = tLines.defense[dKey][slot];
+                                     return (
+                                       <div 
+                                         key={slot} 
+                                         onClick={() => p && handleTogglePlayer(activeTeamId, p)} 
+                                         className={`text-xs p-2 rounded-lg flex justify-between items-center transition-colors ${p ? 'bg-slate-800 text-white cursor-pointer hover:bg-red-950/60 hover:text-red-200' : 'bg-slate-900/50 border border-dashed border-slate-700 text-slate-600'}`}
+                                       >
+                                         {p ? <span className="truncate pr-2">{p.name} <span className="text-slate-400 ml-1 text-[10px]">({p.pos})</span></span> : <span>Emplacement vide</span>}
+                                         {p && <span className="text-emerald-400 font-black">{p.ovr}</span>}
+                                       </div>
+                                     )
+                                   })}
+                                 </div>
+                               </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div>
+                          <h4 className="text-xs font-bold text-slate-500 mb-3 border-b border-slate-800 pb-1.5 uppercase tracking-widest">Gardiens</h4>
+                          <div className="space-y-3">
+                            {['starter', 'backup'].map((gKey, i) => {
+                               const p = tLines.goalies[gKey];
+                               return (
+                                 <div key={gKey} className="bg-slate-950 rounded-xl p-3 border border-slate-800/60 shadow-inner">
+                                   <div className="text-[10px] text-yellow-500 font-bold mb-2 uppercase tracking-wider flex items-center">
+                                     <span className="w-1.5 h-1.5 rounded-full bg-yellow-500 mr-2"></span> {i === 0 ? 'Partant' : 'Substitut'}
+                                   </div>
+                                   <div 
+                                     onClick={() => p && handleTogglePlayer(activeTeamId, p)} 
+                                     className={`text-xs p-2 rounded-lg flex justify-between items-center transition-colors ${p ? 'bg-slate-800 text-white cursor-pointer hover:bg-red-950/60 hover:text-red-200' : 'bg-slate-900/50 border border-dashed border-slate-700 text-slate-600'}`}
+                                   >
+                                     {p ? <span className="truncate pr-2">{p.name} <span className="text-slate-400 ml-1 text-[10px]">({p.pos})</span></span> : <span>Emplacement vide</span>}
+                                     {p && <span className="text-emerald-400 font-black">{p.ovr}</span>}
+                                   </div>
+                                 </div>
+                               )
+                            })}
+                          </div>
+                        </div>
+                      </div>
+
+                    </div>
+                  </div>
+
+                  <div className="flex justify-center pt-4 border-t border-slate-900 mt-4">
+                    <button 
+                      onClick={() => { setActiveTab('sim'); resetSimState(); }}
+                      className="bg-emerald-600 hover:bg-emerald-500 text-white px-10 py-4 rounded-xl font-bold text-lg shadow-[0_0_20px_rgba(16,185,129,0.4)] transition-all flex items-center space-x-2"
+                    >
+                      <span>CONFIRMER LES LIGNES ET SIMULER</span>
+                      <i className="fas fa-chevron-right w-5 h-5 flex items-center justify-center"></i>
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+          };
+
+          const renderSimTab = () => {
+            const aggregateStats = () => {
+              const statsAgg = createInitialPeriodStats();
+              periodStats.forEach(p => {
+                statsAgg.shots[0] += p.shots[0]; statsAgg.shots[1] += p.shots[1];
+                statsAgg.goals[0] += p.goals[0]; statsAgg.goals[1] += p.goals[1];
+                statsAgg.chances[0] += p.chances[0]; statsAgg.chances[1] += p.chances[1];
+                statsAgg.dangerChances[0] += p.dangerChances[0]; statsAgg.dangerChances[1] += p.dangerChances[1];
+                statsAgg.possession[0] += p.possession[0]; statsAgg.possession[1] += p.possession[1];
+                statsAgg.hits[0] += p.hits[0]; statsAgg.hits[1] += p.hits[1];
+                statsAgg.blocks[0] += p.blocks[0]; statsAgg.blocks[1] += p.blocks[1];
+                statsAgg.takeaways[0] += p.takeaways[0]; statsAgg.takeaways[1] += p.takeaways[1];
+                statsAgg.giveaways[0] += p.giveaways[0]; statsAgg.giveaways[1] += p.giveaways[1];
+                statsAgg.entries[0] += p.entries[0]; statsAgg.entries[1] += p.entries[1];
+                statsAgg.exits[0] += p.exits[0]; statsAgg.exits[1] += p.exits[1];
+                statsAgg.faceoffs[0] += p.faceoffs[0]; statsAgg.faceoffs[1] += p.faceoffs[1];
+                statsAgg.faceoffsTotal += p.faceoffsTotal;
+                statsAgg.ppGoals[0] += p.ppGoals[0]; statsAgg.ppGoals[1] += p.ppGoals[1];
+                statsAgg.ppOpps[0] += p.ppOpps[0]; statsAgg.ppOpps[1] += p.ppOpps[1];
+              });
+              return statsAgg;
+            };
+
+            const aggregated = aggregateStats();
+            const totalPoss = (aggregated.possession[0] + aggregated.possession[1]) || 1;
+
+            const activeHLine = lines.home.forwards[uiState.currentLineHome.f] || [];
+            const activeALine = lines.away.forwards[uiState.currentLineAway.f] || [];
+
+            return (
+              <div className="space-y-6 animate-in fade-in duration-300">
+                {showIntermission && (
+                  <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+                    <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl p-6 space-y-6">
+                      <div className="flex justify-between items-center border-b border-slate-800 pb-4">
+                        <div className="flex items-center space-x-2">
+                          <i className="fas fa-trophy text-yellow-500 text-2xl animate-bounce"></i>
+                          <h3 className="text-lg font-black text-white tracking-widest uppercase">FIN DE LA PÉRIODE {intermissionPeriod}</h3>
+                        </div>
+                        <span className="text-xs bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-mono">EA SPORTS SIMULATION ENGINE</span>
+                      </div>
+
+                      <div className="flex justify-around items-center bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-center">
+                        <div>
+                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2" style={{ backgroundColor: homeColor }}>
+                            {homeLogo}
+                          </div>
+                          <div className="text-slate-400 text-xs uppercase font-bold">{homeTeamName}</div>
+                        </div>
+                        <div className="text-3xl font-black text-white">{uiState.homeScore} - {uiState.awayScore}</div>
+                        <div>
+                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2" style={{ backgroundColor: awayColor }}>
+                            {awayLogo}
+                          </div>
+                          <div className="text-slate-400 text-xs uppercase font-bold">{awayTeamName}</div>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Statistiques de la Période {intermissionPeriod}</h4>
+                        {renderComparisonRow("Tirs au but", periodStats[intermissionPeriod-1].shots[0], periodStats[intermissionPeriod-1].shots[1])}
+                        {renderComparisonRow("Buts", periodStats[intermissionPeriod-1].goals[0], periodStats[intermissionPeriod-1].goals[1], true)}
+                        {renderComparisonRow("Chances de marquer", periodStats[intermissionPeriod-1].chances[0], periodStats[intermissionPeriod-1].chances[1])}
+                        {renderComparisonRow("Chances dangereuses", periodStats[intermissionPeriod-1].dangerChances[0], periodStats[intermissionPeriod-1].dangerChances[1])}
+                        {renderComparisonRow(
+                          "Temps de possession", 
+                          formatTime(periodStats[intermissionPeriod-1].possession[0]), 
+                          formatTime(periodStats[intermissionPeriod-1].possession[1])
+                        )}
+                        {renderComparisonRow("Mises en échec", periodStats[intermissionPeriod-1].hits[0], periodStats[intermissionPeriod-1].hits[1])}
+                        {renderComparisonRow("Blocages de tirs", periodStats[intermissionPeriod-1].blocks[0], periodStats[intermissionPeriod-1].blocks[1])}
+                        {renderComparisonRow("Revirements provoqués", periodStats[intermissionPeriod-1].takeaways[0], periodStats[intermissionPeriod-1].takeaways[1])}
+                        {renderComparisonRow("Revirements causés", periodStats[intermissionPeriod-1].giveaways[0], periodStats[intermissionPeriod-1].giveaways[1])}
+                        {renderComparisonRow("Entrées de zone", periodStats[intermissionPeriod-1].entries[0], periodStats[intermissionPeriod-1].entries[1])}
+                        {renderComparisonRow("Sorties de zone", periodStats[intermissionPeriod-1].exits[0], periodStats[intermissionPeriod-1].exits[1])}
+                        {renderComparisonRow(
+                          "Mise au jeu gagnée (%)", 
+                          periodStats[intermissionPeriod-1].faceoffsTotal > 0 ? `${Math.round((periodStats[intermissionPeriod-1].faceoffs[0] / periodStats[intermissionPeriod-1].faceoffsTotal)*100)} %` : '0 %',
+                          periodStats[intermissionPeriod-1].faceoffsTotal > 0 ? `${Math.round((periodStats[intermissionPeriod-1].faceoffs[1] / periodStats[intermissionPeriod-1].faceoffsTotal)*100)} %` : '0 %'
+                        )}
+                        {renderComparisonRow(
+                          "Avantage numérique", 
+                          `${periodStats[intermissionPeriod-1].ppGoals[0]}/${periodStats[intermissionPeriod-1].ppOpps[0]}`,
+                          `${periodStats[intermissionPeriod-1].ppGoals[1]}/${periodStats[intermissionPeriod-1].ppOpps[1]}`
+                        )}
+                      </div>
+
+                      <div className="pt-4 flex justify-center">
+                        <button 
+                          onClick={handleStartNextPeriod}
+                          className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded-xl shadow-lg flex items-center space-x-2 transition-all"
+                        >
+                          <span>DÉBUTER LA PÉRIODE SUIVANTE</span>
+                          <i className="fas fa-chevron-right w-5 h-5 flex items-center"></i>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="relative overflow-hidden bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+                  <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/5 blur-[100px] pointer-events-none rounded-full" />
+                  <div className="absolute bottom-0 left-0 w-96 h-96 bg-red-600/5 blur-[100px] pointer-events-none rounded-full" />
+
+                  <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
+                    <div className="flex items-center space-x-6 w-full md:w-2/5">
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl transition-transform hover:scale-105" style={{ backgroundColor: homeColor }}>
+                        {homeLogo}
+                      </div>
+                      <div className="flex-1">
+                        <h2 className="text-xl font-black text-white uppercase tracking-wider truncate">{homeTeamName}</h2>
+                        <div className="text-slate-500 text-xs uppercase font-semibold mt-0.5">Tirs: <span className="text-slate-300 font-mono font-bold text-sm">{uiState.homeShots}</span></div>
+                      </div>
+                      <div className="text-5xl font-black text-white font-mono">{uiState.homeScore}</div>
+                    </div>
+
+                    <div className="flex flex-col items-center justify-center px-4 py-3 bg-slate-900 border border-slate-800 rounded-2xl min-w-[140px]">
+                      <div className="text-slate-400 text-xs font-black uppercase tracking-widest">Période {uiState.period > 3 ? 'PROL' : uiState.period}</div>
+                      <div className="text-2xl font-black font-mono text-emerald-400 mt-1">{formatTime(uiState.time)}</div>
+                      {uiState.powerplay.active && (
+                        <span className="text-[10px] bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-0.5 rounded-full mt-2 font-black uppercase animate-pulse">
+                          AN {uiState.powerplay.team === 'home' ? homeLogo : awayLogo} {formatTime(uiState.powerplay.timeLeft)}
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="flex items-center space-x-6 w-full md:w-2/5 justify-end text-right">
+                      <div className="text-5xl font-black text-white font-mono">{uiState.awayScore}</div>
+                      <div className="flex-1 min-w-0">
+                        <h2 className="text-xl font-black text-white uppercase tracking-wider truncate">{awayTeamName}</h2>
+                        <div className="text-slate-500 text-xs uppercase font-semibold mt-0.5">Tirs: <span className="text-slate-300 font-mono font-bold text-sm">{uiState.awayShots}</span></div>
+                      </div>
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl transition-transform hover:scale-105" style={{ backgroundColor: awayColor }}>
+                        {awayLogo}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800/80 text-xs text-slate-400">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-blue-400 uppercase">Présence {uiState.currentLineHome.f.toUpperCase()}</span>
+                      <span className="text-slate-300 font-medium truncate">{activeHLine.map(p => p.name).join(' - ')}</span>
+                    </div>
+                    <div className="flex items-center justify-end space-x-2">
+                      <span className="text-slate-300 font-medium truncate">{activeALine.map(p => p.name).join(' - ')}</span>
+                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-red-400 uppercase">Présence {uiState.currentLineAway.f.toUpperCase()}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
+                    <div className="space-y-4">
+                      <h3 className="text-white font-bold text-sm flex items-center">
+                        <i className="fas fa-gear w-4 h-4 mr-2 text-blue-500"></i> Console EA
+                      </h3>
+
+                      <div className="flex justify-center space-x-4 py-4">
+                        <button 
+                          onClick={toggleSim} 
+                          disabled={uiState.status === 'finished'} 
+                          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white p-5 rounded-full transition-transform hover:scale-105 shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center"
+                        >
+                          {uiState.status === 'playing' ? <i className="fas fa-pause text-xl"></i> : <i className="fas fa-play text-xl ml-1"></i>}
+                        </button>
+                        <button 
+                          onClick={resetSimState} 
+                          className="bg-slate-800 hover:bg-slate-700 text-white p-5 rounded-full transition-transform hover:scale-105 flex items-center justify-center"
+                        >
+                          <i className="fas fa-rotate-left text-xl"></i>
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="text-xs text-slate-400 block mb-1">Moteur (Latence): {simSpeed}ms</label>
+                        <input 
+                          type="range" 
+                          min="5" 
+                          max="150" 
+                          value={155 - simSpeed} 
+                          onChange={e => setSimSpeed(155 - e.target.value)} 
+                          className="w-full accent-blue-500 bg-slate-800 rounded-lg appearance-none h-1.5 cursor-pointer" 
+                        />
+                      </div>
+
+                      <div className="pt-4 border-t border-slate-800 text-xs space-y-2">
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Mises au jeu</span>
+                          <span className="text-white font-bold">{uiState.stats.home.team.foWins} - {uiState.stats.away.team.foWins}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span className="text-slate-400">Mises en échec (total)</span>
+                          <span className="text-white font-bold">{aggregated.hits[0]} - {aggregated.hits[1]}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {uiState.status === 'finished' && (
+                      <button 
+                        onClick={() => setActiveTab('results')} 
+                        className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold flex justify-center items-center mt-6 transition-all"
+                      >
+                        <i className="fas fa-chart-bar w-4 h-4 mr-2"></i> ACCÉDER AUX EXPORTS SHEETS
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-96 overflow-hidden">
+                    <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
+                      <span className="text-white font-bold text-sm flex items-center">
+                        <i className="fas fa-chart-line w-4 h-4 mr-2 text-emerald-500 animate-pulse"></i> Journal Broadcast NHL
+                      </span>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
+                      {uiState.events.map(ev => (
+                        <div key={ev.id} className={`p-2 rounded-lg border-l-4 bg-slate-950/40 flex items-start space-x-2 transition-all ${
+                          ev.type === 'goal' ? 'border-emerald-500 text-emerald-100 bg-emerald-950/5' :
+                          ev.type === 'penalty' ? 'border-blue-500 text-blue-200 bg-blue-950/5' :
+                          ev.type === 'injury' ? 'border-red-500 text-red-200 bg-red-950/5' :
+                          'border-slate-800 text-slate-400'
+                        }`}>
+                          <span className="text-[10px] text-slate-600 font-bold min-w-[55px] text-right">P{ev.period} {ev.time}</span>
+                          <span className="flex-1">{ev.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          };
+
+          const renderComparisonRow = (label, valueHome, valueAway, bold = false) => (
+            <div className="flex justify-between items-center py-2 border-b border-slate-800/40 text-sm">
+              <span className={`w-24 text-left font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueHome}</span>
+              <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{label}</span>
+              <span className={`w-24 text-right font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueAway}</span>
+            </div>
+          );
+
+          const renderResultsTab = () => {
+            if (uiState.status !== 'finished' && uiState.events.length <= 1) {
+              return (
+                <div className="text-center text-slate-500 py-16 bg-slate-900 border border-slate-800 rounded-2xl">
+                  <i className="fas fa-circle-exclamation text-slate-700 text-5xl mx-auto mb-3 block"></i>
+                  <h3 className="text-white font-bold">Données Indisponibles</h3>
+                  <p className="text-sm text-slate-500 mt-1">Vous devez d'abord compléter un match dans le simulateur pour récupérer les exports.</p>
+                </div>
+              );
+            }
+
+            const renderExportTable = (tid, title, isGoalie = false) => {
+              const pData = isGoalie ? [lines[tid].goalies.starter, lines[tid].goalies.backup].filter(Boolean) : [
+                ...lines[tid].forwards.l1, ...lines[tid].forwards.l2, ...lines[tid].forwards.l3, ...lines[tid].forwards.l4,
+                ...lines[tid].defense.d1, ...lines[tid].defense.d2, ...lines[tid].defense.d3
+              ];
+              const sData = isGoalie ? uiState.stats[tid].goalies : uiState.stats[tid].skaters;
+              const tableId = `table_${tid}_${isGoalie ? 'g' : 's'}`;
+
+              return (
+                <div className="bg-blue-50 border border-blue-200 rounded-2xl overflow-hidden space-y-3 p-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-blue-200">
+                    <div>
+                      <h3 className="text-blue-950 font-bold text-sm flex items-center">
+                        <i className="fas fa-file-lines w-4 h-4 mr-2 text-blue-600"></i> {tid === 'home' ? homeTeamName : awayTeamName} - {title}
+                      </h3>
+                      <p className="text-xs text-blue-800">Prêt pour transfert direct Excel / Google Sheets.</p>
+                    </div>
+                    <button 
+                      onClick={() => handleCopyTable(tableId)}
+                      className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center transition-all"
+                    >
+                      {isCopied === tableId ? <i className="fas fa-check w-3.5 h-3.5 mr-1 text-white"></i> : <i className="fas fa-clipboard w-3.5 h-3.5 mr-1"></i>}
+                      {isCopied === tableId ? "Copié !" : "Copier"}
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table id={tableId} className="w-full text-xs text-left text-blue-950 whitespace-nowrap">
+                      <thead className="bg-blue-200/60 text-blue-900 uppercase font-mono">
+                        <tr>
+                          {!isGoalie ? (
+                            <>
+                              <th className="px-3 py-2">Nom</th><th className="px-2 py-2">POS</th><th className="px-2 py-2">MJ</th>
+                              <th className="px-2 py-2">B</th><th className="px-2 py-2">A</th><th className="px-2 py-2">PTS</th>
+                              <th className="px-2 py-2">+/-</th><th className="px-2 py-2">Pun</th><th className="px-2 py-2">OVR</th>
+                              <th className="px-2 py-2">Style EA</th><th className="px-2 py-2">Physique</th><th className="px-2 py-2">Tir</th>
+                              <th className="px-2 py-2">Création</th><th className="px-2 py-2">Défensive</th><th className="px-2 py-2">Patinage</th>
+                              <th className="px-2 py-2">Offensive</th><th className="px-2 py-2">Maniement</th>
+                            </>
+                          ) : (
+                            <>
+                              <th className="px-3 py-2">Nom</th><th className="px-2 py-2">Âge</th><th className="px-2 py-2">Pays</th>
+                              <th className="px-2 py-2">MJ</th><th className="px-2 py-2">MA</th><th className="px-2 py-2">V</th>
+                              <th className="px-2 py-2">D</th><th className="px-2 py-2">N</th><th className="px-2 py-2">DP</th>
+                              <th className="px-2 py-2">Moy</th><th className="px-2 py-2">% arrêts</th><th className="px-2 py-2">TC</th>
+                              <th className="px-2 py-2">Arrêts</th><th className="px-2 py-2">BC</th>
+                            </>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pData.map(p => {
+                          const s = sData[p.id] || { gp:0, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0, mins:0, sa:0, sv:0, ga:0 };
+                          if (isGoalie) {
+                            const svPct = s.sa > 0 ? (s.sv / s.sa).toFixed(3) : '.000';
+                            const gaa = s.mins > 0 ? ((s.ga * 60) / s.mins).toFixed(2) : '0.00';
+                            const outcomeVal = s.ga < (tid === 'home' ? uiState.awayScore : uiState.homeScore);
+                            return (
+                              <tr key={p.id} className="border-b border-blue-100 hover:bg-blue-100/50 font-mono">
+                                <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
+                                <td className="px-2 py-2">{p.age}</td><td className="px-2 py-2">{p.country}</td>
+                                <td className="px-2 py-2">{s.mins > 0 ? 1 : 0}</td><td className="px-2 py-2">{Math.floor(s.mins)}</td>
+                                <td className="px-2 py-2">{outcomeVal ? 1 : 0}</td><td className="px-2 py-2">{!outcomeVal ? 1 : 0}</td>
+                                <td className="px-2 py-2">0</td><td className="px-2 py-2">0</td><td className="px-2 py-2">{gaa}</td>
+                                <td className="px-2 py-2">{svPct.replace('0.', '.')}</td><td className="px-2 py-2">{s.sa}</td>
+                                <td className="px-2 py-2">{s.sv}</td><td className="px-2 py-2 text-red-600 font-bold">{s.ga}</td>
+                              </tr>
+                            );
+                          } else {
+                            return (
+                              <tr key={p.id} className="border-b border-blue-100 hover:bg-blue-100/50 font-mono">
+                                <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
+                                <td className="px-2 py-2">{p.pos}</td><td className="px-2 py-2">1</td>
+                                <td className="px-2 py-2">{s.g}</td><td className="px-2 py-2">{s.a}</td>
+                                <td className="px-2 py-2 font-bold text-emerald-600">{s.pts}</td>
+                                <td className="px-2 py-2">{s.pm > 0 ? `+${s.pm}` : s.pm}</td><td className="px-2 py-2">{s.pim}</td>
+                                <td className="px-2 py-2 text-blue-700 font-bold">{p.ovr}</td><td className="px-2 py-2 font-sans">{p.style}</td>
+                                <td className="px-2 py-2">{p.phy}</td><td className="px-2 py-2">{p.sht}</td>
+                                <td className="px-2 py-2">{p.pla}</td><td className="px-2 py-2">{p.def}</td>
+                                <td className="px-2 py-2">{p.ska}</td><td className="px-2 py-2">{p.off}</td>
+                                <td className="px-2 py-2">{p.phn}</td>
+                              </tr>
+                            );
+                          }
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              );
+            };
+
+            return (
+              <div className="space-y-8 animate-in fade-in duration-300">
+                {uiState.injuries.length > 0 && (
+                  <div className="bg-red-950/20 border border-red-900/60 p-4 rounded-2xl">
+                    <h3 className="text-red-400 font-bold text-sm flex items-center mb-3">
+                      <i className="fas fa-circle-exclamation w-5 h-5 mr-2 animate-pulse"></i> Infirmerie & Blessures Match
+                    </h3>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 text-xs">
+                      {uiState.injuries.map((inj, idx) => (
+                        <div key={idx} className="bg-slate-950 p-3 rounded-xl border border-red-900/40">
+                          <div className="font-bold text-white">{inj.name}</div>
+                          <div className="text-slate-500 mt-0.5">Équipe : {inj.team}</div>
+                          <div className="text-red-400 font-medium mt-1">Blessure : {inj.type}</div>
+                          <div className="text-slate-400 mt-0.5">Indisponibilité : {inj.duration} match(s)</div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {renderExportTable('home', 'Joueurs de Champ')}
+                {renderExportTable('home', 'Gardiens de But', true)}
+                {renderExportTable('away', 'Joueurs de Champ')}
+                {renderExportTable('away', 'Gardiens de But', true)}
+              </div>
+            );
+          };
+
+          return (
+            <div className="min-h-screen bg-slate-950 text-slate-300 font-sans antialiased p-4 md:p-8">
+              <div className="max-w-6xl mx-auto space-y-8">
+                
+                <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-slate-900">
+                  <div>
+                    <h1 className="text-2xl font-black text-white tracking-tight flex items-center">
+                      <i className="fas fa-shield-halved w-7 h-7 mr-2.5 text-blue-500 flex items-center"></i>
+                      EA SPORTS <span className="text-blue-500 ml-1.5 font-bold">PRO SIMULATOR</span>
+                    </h1>
+                    <p className="text-slate-500 text-xs mt-1 uppercase tracking-wider font-semibold">Analyse stratégique avancée & Confrontations par présences</p>
+                  </div>
+                  <span className="text-[10px] bg-slate-900 text-slate-400 border border-slate-850 px-3 py-1.5 rounded-full font-mono font-bold">
+                    BUILD 2026.1.18 - PRO-LITE - HTML VERSION
+                  </span>
+                </header>
+
+                <nav className="flex space-x-1.5 bg-slate-900/50 border border-slate-900 p-1.5 rounded-2xl w-fit">
+                  {[
+                    { id: 'config', label: '1. Alignement', icon: 'fa-users' },
+                    { id: 'sim', label: '2. Simulateur Live', icon: 'fa-play' },
+                    { id: 'results', label: '3. Données & Exports', icon: 'fa-download' }
+                  ].map(tab => (
+                    <button
+                      key={tab.id}
+                      onClick={() => setActiveTab(tab.id)}
+                      className={`flex items-center px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all ${
+                        activeTab === tab.id 
+                          ? 'bg-blue-600 text-white shadow-lg shadow-blue-600/10' 
+                          : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
+                      }`}
+                    >
+                      <i className={`fas ${tab.icon} w-3.5 h-3.5 mr-2 text-center`}></i>
+                      {tab.label}
+                    </button>
+                  ))}
+                </nav>
+
+                <main className="min-h-[500px]">
+                  {activeTab === 'config' && renderConfigTab()}
+                  {activeTab === 'sim' && renderSimTab()}
+                  {activeTab === 'results' && renderResultsTab()}
+                </main>
+
+              </div>
+            </div>
+          );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<NHLSimulator />);
+    </script>
+</body>
+</html>
