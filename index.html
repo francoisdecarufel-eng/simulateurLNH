@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Simulateur LNH Pro</title>
+    <title>Simulateur LNH Pro - EA Sports Edition</title>
     
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -87,14 +87,19 @@ Ilya LyubushkinDD79Defensive Defenseman89737181766771`;
         const demoGoaliesAway = `Ilya SamsonovG83HybridStarter8583817673
 Joseph WollG82ButterflyElite8483848177`;
 
-        // Liste exhaustive pour attribuer et valider l'insertion de chaque joueur
-        const FORWARD_POSITIONS = ['C', 'C/AG', 'C/AD', 'A', 'AG', 'AD', 'AG/AD', 'AD/AG'];
+        // Positions ordered according to strict prompt request
+        const SORTED_POSITIONS = [
+          'C', 'C/AG', 'CAG', 'C/AD', 'CAD', 'A', 'AG', 'AD', 'AG/AD', 'AD/AG', 
+          'D', 'DG', 'DD', 'DG/DD', 'DD/DG', 'G'
+        ];
+
+        const FORWARD_POSITIONS = ['C', 'C/AG', 'CAG', 'C/AD', 'CAD', 'A', 'AG', 'AD', 'AG/AD', 'AD/AG'];
         const DEFENSE_POSITIONS = ['D', 'DG', 'DD', 'DG/DD', 'DD/DG'];
         const GOALIE_POSITIONS = ['G'];
 
         function NHLSimulator() {
           const [activeTab, setActiveTab] = useState('config'); // config, sim, results
-          const [configStep, setConfigStep] = useState(1); // 1: Paste/Import, 2: Trios & Chemistry
+          const [configStep, setConfigStep] = useState(1); // 1: Paste/Import, 2: Selection
           
           // Custom Input States
           const [homeTeamName, setHomeTeamName] = useState('Montréal');
@@ -115,7 +120,7 @@ Joseph WollG82ButterflyElite8483848177`;
             away: { skaters: [], goalies: [] }
           });
 
-          // Active Game Lines - STRICTEMENT VIDES AU DÉPART (L'utilisateur doit faire sa sélection)
+          // Active Game Lines - strictly empty at start so user has to configure
           const [lines, setLines] = useState({
             home: {
               forwards: { l1: [null, null, null], l2: [null, null, null], l3: [null, null, null], l4: [null, null, null] },
@@ -156,7 +161,7 @@ Joseph WollG82ButterflyElite8483848177`;
             createInitialPeriodStats(), // Period 1
             createInitialPeriodStats(), // Period 2
             createInitialPeriodStats(), // Period 3
-            createInitialPeriodStats()  // OT
+            createInitialPeriodStats()  // OT (Prolongation)
           ]);
 
           // Simulation Engine State (Ref based)
@@ -188,6 +193,7 @@ Joseph WollG82ButterflyElite8483848177`;
           const [isCopied, setIsCopied] = useState(null);
           const [configTeamView, setConfigTeamView] = useState('home');
 
+          // --- LOGIQUE DE GÉNÉRATION DES TIRS (Nouvelles formules) ---
           const getOffensiveForce = (forwards, defensemen) => {
             const f = forwards.filter(Boolean);
             const d = defensemen.filter(Boolean);
@@ -232,23 +238,13 @@ Joseph WollG82ButterflyElite8483848177`;
           };
 
           const getPosOrder = (pos) => {
-            const posOrder = {
-              'C': 1,
-              'C/AG': 2,
-              'C/AD': 3,
-              'A': 4,
-              'AG': 5,
-              'AD': 6,
-              'AG/AD': 7,
-              'AD/AG': 8,
-              'D': 9,
-              'DG': 10,
-              'DD': 11,
-              'DG/DD': 12,
-              'DD/DG': 13,
-              'G': 100 // Toujours le dernier de la liste
-            };
-            return posOrder[pos.trim().toUpperCase()] || 90; // Unknown standardisé avant G
+            const formattedPos = pos.trim().toUpperCase();
+            const index = SORTED_POSITIONS.indexOf(formattedPos);
+            // If pos doesn't match exactly, fallback but always before the Goalie (G) which is index 15
+            if (index === -1) {
+              return 14; 
+            }
+            return index;
           };
 
           const parsePastedRoster = (skatersText, goaliesText) => {
@@ -258,8 +254,8 @@ Joseph WollG82ButterflyElite8483848177`;
             if (skatersText) {
               const skaterLines = skatersText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
               skaterLines.forEach(line => {
-                // Regex améliorée pour prendre en charge l'intégralité des positions hybrides sans faille
-                const strictRegex = /^([A-Za-zÀ-ÿ\s\.\-\'\’]+?)\s*(C\/AD|C\/AG|AG\/AD|AD\/AG|DG\/DD|DD\/DG|C|A|AG|AD|DG|DD|D)\s*(\d{2,3})\s*(Two-Way Forward|Sniper|Power Forward|Playmaker|Two-Way Defenseman|Offensive Defenseman|Defensive Defenseman|Enforcer|Grinder|Bagarreur|Énergique|Polyvalent|Défensif|Fabricant|Franc-tireur|Robuste)\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})/i;
+                // Extended support for multiple combined/hybrid positions
+                const strictRegex = /^([A-Za-zÀ-ÿ\s\.\-\'\’]+?)\s*(C\/AG|CAG|C\/AD|CAD|AG\/AD|AD\/AG|DG\/DD|DD\/DG|C|A|AG|AD|DG|DD|D)\s*(\d{2,3})\s*(Two-Way Forward|Sniper|Power Forward|Playmaker|Two-Way Defenseman|Offensive Defenseman|Defensive Defenseman|Enforcer|Grinder|Bagarreur|Énergique|Polyvalent|Défensif|Fabricant|Franc-tireur|Robuste)\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})/i;
                 const match = line.match(strictRegex);
 
                 if (match) {
@@ -332,7 +328,7 @@ Joseph WollG82ButterflyElite8483848177`;
             const skaters = [...poolData.skaters];
             const goalies = [...poolData.goalies];
 
-            // Distribution intelligente basée sur notre classification exhaustive
+            // Filter lists based on positions list
             const fList = skaters.filter(p => FORWARD_POSITIONS.includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
             const dList = skaters.filter(p => DEFENSE_POSITIONS.includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
             const gList = [...goalies].sort((a,b) => b.ovr - a.ovr);
@@ -471,6 +467,83 @@ Joseph WollG82ButterflyElite8483848177`;
             if (simRef.current.events.length > 50) simRef.current.events.pop();
           };
 
+          const simulateShootout = () => {
+            const s = simRef.current;
+            addEvent('info', "⚽ --- DÉBUT DES TIRS DE BARRAGE ---");
+            
+            let homeShooters = [
+              ...lines.home.forwards.l1, ...lines.home.forwards.l2, ...lines.home.forwards.l3, ...lines.home.forwards.l4
+            ].filter(Boolean);
+            let awayShooters = [
+              ...lines.away.forwards.l1, ...lines.away.forwards.l2, ...lines.away.forwards.l3, ...lines.away.forwards.l4
+            ].filter(Boolean);
+            
+            let homeGoalie = lines.home.goalies.starter || { name: "Gardien Dom", ovr: 80 };
+            let awayGoalie = lines.away.goalies.starter || { name: "Gardien Vis", ovr: 80 };
+            
+            let homeWins = 0;
+            let awayWins = 0;
+            let shootoutEvents = [];
+            
+            // First 3 rounds
+            for (let i = 0; i < 3; i++) {
+              const hShooter = homeShooters[i % homeShooters.length] || { name: "Joueur Dom", sht: 80 };
+              const aShooter = awayShooters[i % awayShooters.length] || { name: "Joueur Vis", sht: 80 };
+              
+              // Home shooter vs Away goalie
+              const hGoal = Math.random() < (hShooter.sht / (hShooter.sht + (awayGoalie.ovr || 80) + 15));
+              if (hGoal) {
+                homeWins++;
+                shootoutEvents.push(`Ronde ${i+1} ${homeLogo}: 🥅 BUT! ${hShooter.name} déjoue le gardien.`);
+              } else {
+                shootoutEvents.push(`Ronde ${i+1} ${homeLogo}: ❌ ARRÊT! Le gardien bloque ${hShooter.name}.`);
+              }
+              
+              // Away shooter vs Home goalie
+              const aGoal = Math.random() < (aShooter.sht / (aShooter.sht + (homeGoalie.ovr || 80) + 15));
+              if (aGoal) {
+                awayWins++;
+                shootoutEvents.push(`Ronde ${i+1} ${awayLogo}: 🥅 BUT! ${aShooter.name} marque.`);
+              } else {
+                shootoutEvents.push(`Ronde ${i+1} ${awayLogo}: ❌ ARRÊT! Tentative stoppée de ${aShooter.name}.`);
+              }
+            }
+            
+            // Sudden death if tied
+            let currentRound = 4;
+            while (homeWins === awayWins) {
+              const hShooter = homeShooters[(currentRound - 1) % homeShooters.length] || { name: "Joueur Dom", sht: 80 };
+              const aShooter = awayShooters[(currentRound - 1) % awayShooters.length] || { name: "Joueur Vis", sht: 80 };
+              
+              const hGoal = Math.random() < (hShooter.sht / (hShooter.sht + (awayGoalie.ovr || 80) + 15));
+              const aGoal = Math.random() < (aShooter.sht / (aShooter.sht + (homeGoalie.ovr || 80) + 15));
+              
+              if (hGoal && !aGoal) {
+                homeWins++;
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${homeLogo}: 🥅 BUT! ${hShooter.name} donne la victoire.`);
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${awayLogo}: ❌ ARRÊT! Tentative ratée.`);
+              } else if (!hGoal && aGoal) {
+                awayWins++;
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${homeLogo}: ❌ ARRÊT! Stoppé.`);
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${awayLogo}: 🥅 BUT! ${aShooter.name} tranche le débat.`);
+              } else {
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}): Égalité persistante (${hGoal ? 'But/But' : 'Arrêt/Arrêt'}).`);
+              }
+              currentRound++;
+            }
+            
+            // Apply Shootout Outcome (1 additional goal for the winning team but doesn't affect player stats)
+            if (homeWins > awayWins) {
+              s.homeScore++;
+              addEvent('goal', `🏆 VICTOIRE EN TIRS DE BARRAGE - ${homeTeamName}! Score final: ${s.homeScore} - ${s.awayScore}`, 'home');
+            } else {
+              s.awayScore++;
+              addEvent('goal', `🏆 VICTOIRE EN TIRS DE BARRAGE - ${awayTeamName}! Score final: ${s.homeScore} - ${s.awayScore}`, 'away');
+            }
+            
+            shootoutEvents.reverse().forEach(evt => addEvent('info', evt));
+          };
+
           const processTick = () => {
             const s = simRef.current;
             if (s.status !== 'playing') return;
@@ -478,19 +551,42 @@ Joseph WollG82ButterflyElite8483848177`;
             const pIndex = s.period - 1;
 
             if (s.time <= 0) {
-              if (s.period < 3 || s.homeScore === s.awayScore) {
+              if (s.period < 3) {
                 s.status = 'intermission';
                 setIntermissionPeriod(s.period);
                 setShowIntermission(true);
                 addEvent('info', `Fin de la période ${s.period}. Les équipes retournent au vestiaire.`);
                 setUiState({ ...s });
                 return;
-              } else {
-                s.status = 'finished';
-                addEvent('info', `Fin du match! Marque finale: ${homeTeamName} ${s.homeScore} - ${s.awayScore} ${awayTeamName}`);
-                finalizeGame();
-                setUiState({ ...s });
-                return;
+              } else if (s.period === 3) {
+                if (s.homeScore === s.awayScore) {
+                  s.status = 'intermission';
+                  setIntermissionPeriod(s.period);
+                  setShowIntermission(true);
+                  addEvent('info', `Égalité après 3 périodes ! Les équipes se préparent pour une prolongation de 5 minutes à 3 contre 3.`);
+                  setUiState({ ...s });
+                  return;
+                } else {
+                  s.status = 'finished';
+                  addEvent('info', `Fin du match! Marque finale: ${homeTeamName} ${s.homeScore} - ${s.awayScore} ${awayTeamName}`);
+                  finalizeGame();
+                  setUiState({ ...s });
+                  return;
+                }
+              } else if (s.period === 4) { // End of OT
+                if (s.homeScore === s.awayScore) {
+                  simulateShootout();
+                  s.status = 'finished';
+                  finalizeGame();
+                  setUiState({ ...s });
+                  return;
+                } else {
+                  s.status = 'finished';
+                  addEvent('info', `Fin du match! Marque finale: ${homeTeamName} ${s.homeScore} - ${s.awayScore} ${awayTeamName}`);
+                  finalizeGame();
+                  setUiState({ ...s });
+                  return;
+                }
               }
             }
 
@@ -541,7 +637,7 @@ Joseph WollG82ButterflyElite8483848177`;
             }
 
             const eventRoll = Math.random();
-            if (eventRoll < 0.058) { // Fréquence de lancers optimisée
+            if (eventRoll < 0.058) { 
               const posRoll = Math.random();
               const attTeam = posRoll > 0.5 ? 'home' : 'away';
               const defTeam = attTeam === 'home' ? 'away' : 'home';
@@ -559,7 +655,6 @@ Joseph WollG82ButterflyElite8483848177`;
               const offForce = getOffensiveForce(attF, attD);
               const defForce = getDefensiveForce(defD, defF, defG);
               
-              // Distribution de 20 à 35 tirs à 80%
               let shotThreshold = 0.58; 
               shotThreshold += ((offForce - defForce) * 0.015);
               
@@ -803,6 +898,31 @@ Joseph WollG82ButterflyElite8483848177`;
 
           const finalizeGame = () => {
             const s = simRef.current;
+            const homeWon = s.homeScore > s.awayScore;
+            const wentToOT = s.period >= 4;
+
+            // Attribute goalie outcomes
+            const hGoalie = lines.home.goalies.starter;
+            const aGoalie = lines.away.goalies.starter;
+
+            if (hGoalie && s.stats.home.goalies[hGoalie.id]) {
+              const gStat = s.stats.home.goalies[hGoalie.id];
+              if (homeWon) {
+                gStat.w = 1;
+              } else {
+                if (wentToOT) gStat.otl = 1; else gStat.l = 1;
+              }
+            }
+            if (aGoalie && s.stats.away.goalies[aGoalie.id]) {
+              const gStat = s.stats.away.goalies[aGoalie.id];
+              if (!homeWon) {
+                gStat.w = 1;
+              } else {
+                if (wentToOT) gStat.otl = 1; else gStat.l = 1;
+              }
+            }
+
+            // Progression / Regression stats engine
             ['home', 'away'].forEach(tid => {
               const roster = [
                 ...lines[tid].forwards.l1, ...lines[tid].forwards.l2, ...lines[tid].forwards.l3, ...lines[tid].forwards.l4,
@@ -850,11 +970,11 @@ Joseph WollG82ButterflyElite8483848177`;
           const handleStartNextPeriod = () => {
             const s = simRef.current;
             s.period++;
-            s.time = s.period > 3 ? 300 : 1200; 
+            s.time = s.period >= 4 ? 300 : 1200; // Prolongation is 5 mins (300 secs)
             s.status = 'playing';
             setShowIntermission(false);
             setUiState({ ...s });
-            addEvent('info', `Début de la période ${s.period}. Rondelle déposée au centre.`);
+            addEvent('info', `Début de la période ${s.period >= 4 ? 'de prolongation' : s.period}. Rondelle déposée au centre.`);
           };
 
           const handleCopyTable = (tableId) => {
@@ -1068,7 +1188,7 @@ Joseph WollG82ButterflyElite8483848177`;
                        
                        <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
                          {(() => {
-                           // Tri strict selon la consigne : C, C/AG, C/AD, A, AG, AD, AG/AD, AD/AG, D, DG, DD, DG/DD, DD/DG, G
+                           // Tri strict : C, C/AG, CAG, C/AD, CAD, A, AG, AD, AG/AD, AD/AG, D, DG, DD, DG/DD, DD/DG, G
                            const sortedPool = [...(pool.skaters || []), ...(pool.goalies || [])].sort((a, b) => getPosOrder(a.pos) - getPosOrder(b.pos));
                            
                            return sortedPool.map(p => {
@@ -1222,8 +1342,16 @@ Joseph WollG82ButterflyElite8483848177`;
             };
 
             const aggregated = aggregateStats();
-            const activeHLine = lines.home.forwards[uiState.currentLineHome.f] || [];
-            const activeALine = lines.away.forwards[uiState.currentLineAway.f] || [];
+            
+            // Adjust shifts layout to 3v3 style if in Overtime (P4+)
+            const isOvertime = uiState.period >= 4;
+            const activeHLine = isOvertime 
+              ? (lines.home.forwards[uiState.currentLineHome.f]?.slice(0, 1).concat(lines.home.defense[uiState.currentLineHome.d]?.slice(0, 2)) || []).filter(Boolean)
+              : (lines.home.forwards[uiState.currentLineHome.f] || []);
+            
+            const activeALine = isOvertime
+              ? (lines.away.forwards[uiState.currentLineAway.f]?.slice(0, 1).concat(lines.away.defense[uiState.currentLineAway.d]?.slice(0, 2)) || []).filter(Boolean)
+              : (lines.away.forwards[uiState.currentLineAway.f] || []);
 
             return (
               <div className="space-y-6 animate-in fade-in duration-300">
@@ -1233,7 +1361,7 @@ Joseph WollG82ButterflyElite8483848177`;
                       <div className="flex justify-between items-center border-b border-slate-800 pb-4">
                         <div className="flex items-center space-x-2">
                           <i className="fas fa-trophy text-yellow-500 text-2xl animate-bounce"></i>
-                          <h3 className="text-lg font-black text-white tracking-widest uppercase">FIN DE LA PÉRIODE {intermissionPeriod}</h3>
+                          <h3 className="text-lg font-black text-white tracking-widest uppercase">FIN DE LA PÉRIODE {intermissionPeriod >= 4 ? 'DE PROLONGATION' : intermissionPeriod}</h3>
                         </div>
                         <span className="text-xs bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-mono">EA SPORTS SIMULATION ENGINE</span>
                       </div>
@@ -1255,22 +1383,22 @@ Joseph WollG82ButterflyElite8483848177`;
                       </div>
 
                       <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Statistiques de la Période {intermissionPeriod}</h4>
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Statistiques cumulées</h4>
                         {renderComparisonRow("Tirs au but", periodStats[intermissionPeriod-1].shots[0], periodStats[intermissionPeriod-1].shots[1])}
                         {renderComparisonRow("Buts", periodStats[intermissionPeriod-1].goals[0], periodStats[intermissionPeriod-1].goals[1], true)}
                         {renderComparisonRow("Chances de marquer", periodStats[intermissionPeriod-1].chances[0], periodStats[intermissionPeriod-1].chances[1])}
                         {renderComparisonRow("Chances dangereuses", periodStats[intermissionPeriod-1].dangerChances[0], periodStats[intermissionPeriod-1].dangerChances[1])}
                         {renderComparisonRow(
-                          "Temps de possession", 
-                          formatTime(periodStats[intermissionPeriod-1].possession[0]), 
-                          formatTime(periodStats[intermissionPeriod-1].possession[1])
+                          "Temps de possession (sec)", 
+                          periodStats[intermissionPeriod-1].possession[0], 
+                          periodStats[intermissionPeriod-1].possession[1]
                         )}
                         {renderComparisonRow("Mises en échec", periodStats[intermissionPeriod-1].hits[0], periodStats[intermissionPeriod-1].hits[1])}
                         {renderComparisonRow("Blocages de tirs", periodStats[intermissionPeriod-1].blocks[0], periodStats[intermissionPeriod-1].blocks[1])}
                         {renderComparisonRow("Revirements provoqués", periodStats[intermissionPeriod-1].takeaways[0], periodStats[intermissionPeriod-1].takeaways[1])}
                         {renderComparisonRow("Revirements causés", periodStats[intermissionPeriod-1].giveaways[0], periodStats[intermissionPeriod-1].giveaways[1])}
-                        {renderComparisonRow("Entrées de zone", periodStats[intermissionPeriod-1].entries[0], periodStats[intermissionPeriod-1].entries[1])}
-                        {renderComparisonRow("Sorties de zone", periodStats[intermissionPeriod-1].exits[0], periodStats[intermissionPeriod-1].exits[1])}
+                        {renderComparisonRow("Entrées de zone réussies", periodStats[intermissionPeriod-1].entries[0], periodStats[intermissionPeriod-1].entries[1])}
+                        {renderComparisonRow("Sorties de zone réussies", periodStats[intermissionPeriod-1].exits[0], periodStats[intermissionPeriod-1].exits[1])}
                         {renderComparisonRow(
                           "Mise au jeu gagnée (%)", 
                           periodStats[intermissionPeriod-1].faceoffsTotal > 0 ? `${Math.round((periodStats[intermissionPeriod-1].faceoffs[0] / periodStats[intermissionPeriod-1].faceoffsTotal)*100)} %` : '0 %',
@@ -1313,7 +1441,7 @@ Joseph WollG82ButterflyElite8483848177`;
                     </div>
 
                     <div className="flex flex-col items-center justify-center px-4 py-3 bg-slate-900 border border-slate-800 rounded-2xl min-w-[140px]">
-                      <div className="text-slate-400 text-xs font-black uppercase tracking-widest">Période {uiState.period > 3 ? 'PROL' : uiState.period}</div>
+                      <div className="text-slate-400 text-xs font-black uppercase tracking-widest">{uiState.period >= 4 ? 'PROLONGATION' : `PÉRIODE ${uiState.period}`}</div>
                       <div className="text-2xl font-black font-mono text-emerald-400 mt-1">{formatTime(uiState.time)}</div>
                       {uiState.powerplay.active && (
                         <span className="text-[10px] bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-0.5 rounded-full mt-2 font-black uppercase animate-pulse">
@@ -1336,12 +1464,16 @@ Joseph WollG82ButterflyElite8483848177`;
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800/80 text-xs text-slate-400">
                     <div className="flex items-center space-x-2">
-                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-blue-400 uppercase">Présence {uiState.currentLineHome.f.toUpperCase()}</span>
+                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-blue-400 uppercase">
+                        {isOvertime ? '3v3 PRO Dom' : `Présence ${uiState.currentLineHome.f.toUpperCase()}`}
+                      </span>
                       <span className="text-slate-300 font-medium truncate">{activeHLine.map(p => p ? p.name : 'Remplaçant').join(' - ')}</span>
                     </div>
                     <div className="flex items-center justify-end space-x-2">
                       <span className="text-slate-300 font-medium truncate">{activeALine.map(p => p ? p.name : 'Remplaçant').join(' - ')}</span>
-                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-red-400 uppercase">Présence {uiState.currentLineAway.f.toUpperCase()}</span>
+                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-red-400 uppercase">
+                        {isOvertime ? '3v3 PRO Vis' : `Présence ${uiState.currentLineAway.f.toUpperCase()}`}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -1406,7 +1538,7 @@ Joseph WollG82ButterflyElite8483848177`;
                   <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-96 overflow-hidden">
                     <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
                       <span className="text-white font-bold text-sm flex items-center">
-                        <i className="fas fa-chart-line w-4 h-4 mr-2 text-emerald-500 animate-pulse"></i> Journal Broadcast NHL
+                        <i className="fas fa-chart-line w-4 h-4 mr-2 text-emerald-500 animate-pulse"></i> Journal Broadcast LNH
                       </span>
                     </div>
                     <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
@@ -1456,13 +1588,13 @@ Joseph WollG82ButterflyElite8483848177`;
               const tableId = `table_${tid}_${isGoalie ? 'g' : 's'}`;
 
               return (
-                <div className="bg-blue-50 border border-blue-200 rounded-2xl overflow-hidden space-y-3 p-4">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-blue-200">
+                <div className="bg-sky-50 border border-sky-200 rounded-2xl overflow-hidden space-y-3 p-4">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-sky-200">
                     <div>
                       <h3 className="text-blue-950 font-bold text-sm flex items-center">
                         <i className="fas fa-file-lines w-4 h-4 mr-2 text-blue-600"></i> {tid === 'home' ? homeTeamName : awayTeamName} - {title}
                       </h3>
-                      <p className="text-xs text-blue-800">Prêt pour transfert direct Excel / Google Sheets.</p>
+                      <p className="text-xs text-sky-800">Prêt pour transfert direct Excel / Google Sheets.</p>
                     </div>
                     <button 
                       onClick={() => handleCopyTable(tableId)}
@@ -1475,7 +1607,7 @@ Joseph WollG82ButterflyElite8483848177`;
 
                   <div className="overflow-x-auto">
                     <table id={tableId} className="w-full text-xs text-left text-blue-950 whitespace-nowrap">
-                      <thead className="bg-blue-200/60 text-blue-900 uppercase font-mono">
+                      <thead className="bg-sky-100 text-blue-900 uppercase font-mono">
                         <tr>
                           {!isGoalie ? (
                             <>
@@ -1499,25 +1631,25 @@ Joseph WollG82ButterflyElite8483848177`;
                       </thead>
                       <tbody>
                         {pData.map(p => {
-                          const s = sData[p.id] || { gp:0, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0, mins:0, sa:0, sv:0, ga:0 };
+                          const s = sData[p.id] || { gp:0, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0, mins:0, sa:0, sv:0, ga:0, w:0, l:0, otl:0 };
                           if (isGoalie) {
+                            const playedMatch = s.mins > 0 ? 1 : 0;
                             const svPct = s.sa > 0 ? (s.sv / s.sa).toFixed(3) : '.000';
                             const gaa = s.mins > 0 ? ((s.ga * 60) / s.mins).toFixed(2) : '0.00';
-                            const outcomeVal = s.ga < (tid === 'home' ? uiState.awayScore : uiState.homeScore);
                             return (
-                              <tr key={p.id} className="border-b border-blue-100 hover:bg-blue-100/50 font-mono">
+                              <tr key={p.id} className="border-b border-sky-100 hover:bg-sky-200/50 font-mono">
                                 <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
                                 <td className="px-2 py-2">{p.age}</td><td className="px-2 py-2">{p.country}</td>
-                                <td className="px-2 py-2">{s.mins > 0 ? 1 : 0}</td><td className="px-2 py-2">{Math.floor(s.mins)}</td>
-                                <td className="px-2 py-2">{outcomeVal ? 1 : 0}</td><td className="px-2 py-2">{!outcomeVal ? 1 : 0}</td>
-                                <td className="px-2 py-2">0</td><td className="px-2 py-2">0</td><td className="px-2 py-2">{gaa}</td>
+                                <td className="px-2 py-2">{playedMatch}</td><td className="px-2 py-2">{Math.floor(s.mins)}</td>
+                                <td className="px-2 py-2">{s.w}</td><td className="px-2 py-2">{s.l}</td>
+                                <td className="px-2 py-2">0</td><td className="px-2 py-2">{s.otl}</td><td className="px-2 py-2">{gaa}</td>
                                 <td className="px-2 py-2">{svPct.replace('0.', '.')}</td><td className="px-2 py-2">{s.sa}</td>
                                 <td className="px-2 py-2">{s.sv}</td><td className="px-2 py-2 text-red-600 font-bold">{s.ga}</td>
                               </tr>
                             );
                           } else {
                             return (
-                              <tr key={p.id} className="border-b border-blue-100 hover:bg-blue-100/50 font-mono">
+                              <tr key={p.id} className="border-b border-sky-100 hover:bg-sky-200/50 font-mono">
                                 <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
                                 <td className="px-2 py-2">{p.pos}</td><td className="px-2 py-2">1</td>
                                 <td className="px-2 py-2">{s.g}</td><td className="px-2 py-2">{s.a}</td>
@@ -1575,12 +1707,12 @@ Joseph WollG82ButterflyElite8483848177`;
                   <div>
                     <h1 className="text-2xl font-black text-white tracking-tight flex items-center">
                       <i className="fas fa-shield-halved w-7 h-7 mr-2.5 text-blue-500 flex items-center"></i>
-                      EA SPORTS <span className="text-blue-500 ml-1.5 font-bold">PRO SIMULATOR</span>
+                      EA SPORTS <span className="text-blue-500 ml-1.5 font-bold">PRO SIMULATOR LNH</span>
                     </h1>
                     <p className="text-slate-500 text-xs mt-1 uppercase tracking-wider font-semibold">Analyse stratégique avancée & Confrontations par présences</p>
                   </div>
                   <span className="text-[10px] bg-slate-900 text-slate-400 border border-slate-850 px-3 py-1.5 rounded-full font-mono font-bold">
-                    BUILD 2026.1.18 - PRO-LITE - HTML VERSION
+                    BUILD 2026.2.14 - PRO-ULTIMATE - LIVE VERSION
                   </span>
                 </header>
 
