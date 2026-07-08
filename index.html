@@ -433,14 +433,12 @@ Joseph WollG82ButterflyElite8483848177`;
 
           const rollShotsDistribution = () => {
             const r = Math.random();
-            // Strictly ensures 80% of games are between 20 and 35 shots
-            if (r < 0.05) return 10 + Math.floor(Math.random() * 5); // 10-14 (5%)
-            if (r < 0.10) return 15 + Math.floor(Math.random() * 5); // 15-19 (5%)
-            if (r < 0.50) return 20 + Math.floor(Math.random() * 8); // 20-27 (40%)
-            if (r < 0.90) return 28 + Math.floor(Math.random() * 8); // 28-35 (40%) -> 80% total in 20-35
-            if (r < 0.97) return 36 + Math.floor(Math.random() * 5); // 36-40 (7%)
-            if (r < 0.99) return 41 + Math.floor(Math.random() * 5); // 41-45 (2%)
-            return 46 + Math.floor(Math.random() * 10); // 46-55 (1%)
+            if (r < 0.05) return 18 + Math.floor(Math.random() * 3); // 18-20 (5%)
+            if (r < 0.20) return 21 + Math.floor(Math.random() * 4); // 21-24 (15%)
+            if (r < 0.55) return 25 + Math.floor(Math.random() * 5); // 25-29 (35%)
+            if (r < 0.85) return 30 + Math.floor(Math.random() * 5); // 30-34 (30%)
+            if (r < 0.97) return 35 + Math.floor(Math.random() * 5); // 35-39 (12%)
+            return 40 + Math.min(5, Math.floor(Math.random() * 6)); // 40-45 (3%)
           };
 
           const resetSimState = () => {
@@ -457,33 +455,27 @@ Joseph WollG82ButterflyElite8483848177`;
               return s;
             };
 
-            // Roll target goals strictly based on requested NHL distributions
-            const r = Math.random();
-            let targetGoals = 5;
-            if (r < 0.05) { 
-              targetGoals = Math.floor(Math.random() * 3); // 0, 1 or 2 (3-5% for 2 goals or less)
-            } else if (r < 0.16) { 
-              targetGoals = 3; // ~11% for 3 goals
-            } else if (r < 0.31) { 
-              targetGoals = 4; // ~15% for 4 goals
-            } else if (r < 0.55) { 
-              targetGoals = 5; // ~24% for 5 goals
-            } else if (r < 0.74) { 
-              targetGoals = 7; // ~19% for 7 goals (Most frequent scenario here)
-            } else if (r < 0.87) { 
-              targetGoals = 8; // ~13% for 8 goals
-            } else if (r < 0.97) { 
-              targetGoals = Math.random() < 0.5 ? 9 : 10; // ~10% for 9-10 goals
-            } else { 
-              targetGoals = 11 + Math.floor(Math.random() * 3); // <3% for 11+ goals
-            }
+            const hAtt = (lines.home.forwards.l1 || []).concat(lines.home.forwards.l2 || []).filter(Boolean);
+            const hDef = (lines.home.defense.d1 || []).filter(Boolean);
+            const aAtt = (lines.away.forwards.l1 || []).concat(lines.away.forwards.l2 || []).filter(Boolean);
+            const aDef = (lines.away.defense.d1 || []).filter(Boolean);
+            
+            const homeOff = getOffensiveForce(hAtt, hDef);
+            const awayOff = getOffensiveForce(aAtt, aDef);
+            const homeDef = getDefensiveForce(hDef, hAtt, lines.home.goalies.starter);
+            const awayDef = getDefensiveForce(aDef, aAtt, lines.away.goalies.starter);
 
-            const targetShotsHome = rollShotsDistribution();
-            const targetShotsAway = rollShotsDistribution();
+            let targetShotsHome = rollShotsDistribution();
+            let targetShotsAway = rollShotsDistribution();
+
+            const ratingDiffHome = (homeOff - awayDef) * 0.15;
+            const ratingDiffAway = (awayOff - homeDef) * 0.15;
+
+            targetShotsHome = Math.max(18, Math.min(45, Math.round(targetShotsHome + ratingDiffHome + 1.0)));
+            targetShotsAway = Math.max(18, Math.min(45, Math.round(targetShotsAway + ratingDiffAway)));
 
             simRef.current = {
               status: 'idle', period: 1, time: 1200, homeScore: 0, awayScore: 0, homeShots: 0, awayShots: 0,
-              targetGoals: targetGoals,
               targetShotsHome: targetShotsHome,
               targetShotsAway: targetShotsAway,
               events: [{ id: Date.now(), time: '20:00', period: 1, type: 'info', text: 'Bienvenue au Centre de simulation LNH Pro. Match prêt.' }],
@@ -685,48 +677,78 @@ Joseph WollG82ButterflyElite8483848177`;
               s.currentLineAway = { f: linesArr[Math.floor(Math.random() * 4)], d: dArr[Math.floor(Math.random() * 3)] };
             }
 
-            const eventRoll = Math.random();
-            if (eventRoll < 0.058) { 
-              const posRoll = Math.random();
-              const attTeam = posRoll > 0.5 ? 'home' : 'away';
-              const defTeam = attTeam === 'home' ? 'away' : 'home';
-              const attIdx = attTeam === 'home' ? 0 : 1;
-              const defIdx = attTeam === 'home' ? 1 : 0;
+            // 1. SITUATIONAL GAME FLOW COEFFICIENTS
+            let homeSituationalMult = 1.0;
+            let awaySituationalMult = 1.0;
 
-              const attF = getPlayersOnIce(attTeam, 'f');
-              const attD = getPlayersOnIce(attTeam, 'd');
-              const defF = getPlayersOnIce(defTeam, 'f');
-              const defD = getPlayersOnIce(defTeam, 'd');
-              const defG = getPlayersOnIce(defTeam, 'g');
-              
-              if(!defG) return; 
+            if (s.period === 3) {
+              const scoreDiff = s.homeScore - s.awayScore;
+              if (scoreDiff >= 2) {
+                homeSituationalMult = 0.75; // leading: defensive preservation
+                awaySituationalMult = 1.30; // losing: intense attack push
+              } else if (scoreDiff <= -2) {
+                homeSituationalMult = 1.30; // losing: intense attack push
+                awaySituationalMult = 0.75; // leading: defensive preservation
+              }
+            }
 
-              const offForce = getOffensiveForce(attF, attD);
-              const defForce = getDefensiveForce(defD, defF, defG);
-              
-              let shotThreshold = 0.58; 
-              shotThreshold += ((offForce - defForce) * 0.015);
-              
-              const scoreDiff = attTeam === 'home' ? s.homeScore - s.awayScore : s.awayScore - s.homeScore;
-              if (scoreDiff >= 2) shotThreshold *= 0.90; 
-              else if (scoreDiff <= -3) shotThreshold *= 1.25; 
-              else if (scoreDiff <= -2) shotThreshold *= 1.15; 
+            // 2. EMPTY NET (FILET DÉSERT - DESPERATION IN LAST 2 MINUTES)
+            if (s.period === 3 && s.time <= 120) {
+              const scoreDiff = s.homeScore - s.awayScore;
+              if (scoreDiff === -1 || scoreDiff === -2) {
+                s.homeGoaliePulled = true;
+                homeSituationalMult = 1.60;
+                awaySituationalMult = 1.40;
+              } else if (scoreDiff === 1 || scoreDiff === 2) {
+                s.awayGoaliePulled = true;
+                awaySituationalMult = 1.60;
+                homeSituationalMult = 1.40;
+              }
+            } else {
+              s.homeGoaliePulled = false;
+              s.awayGoaliePulled = false;
+            }
 
-              if (s.period === 1) shotThreshold *= 0.85; 
-              else shotThreshold *= 1.05;
+            // 3. SECONDS REMAINING ON TICK SYSTEM
+            const timeRemaining = s.time + (3 - Math.min(3, s.period)) * 1200;
+            const homeShotsRemaining = Math.max(1, s.targetShotsHome - s.homeShots);
+            const awayShotsRemaining = Math.max(1, s.targetShotsAway - s.awayShots);
+            const secsRemaining = Math.max(10, timeRemaining);
 
-              const lineFactors = { l1: 1.25, l2: 1.10, l3: 0.90, l4: 0.70 };
-              const currentLineId = attTeam === 'home' ? s.currentLineHome.f : s.currentLineAway.f;
-              shotThreshold *= (lineFactors[currentLineId] || 1.0);
+            let probHomeShot = (homeShotsRemaining / secsRemaining) * homeSituationalMult;
+            let probAwayShot = (awayShotsRemaining / secsRemaining) * awaySituationalMult;
 
-              const reboundFactor = (100 - defG.con) * 0.002;
-              shotThreshold += reboundFactor;
-              shotThreshold = Math.max(0.20, Math.min(0.85, shotThreshold));
+            if (s.powerplay.active) {
+              if (s.powerplay.team === 'home') {
+                probHomeShot *= 1.40;
+                probAwayShot *= 0.60;
+              } else {
+                probAwayShot *= 1.40;
+                probHomeShot *= 0.60;
+              }
+            }
 
-              const actionRoll = Math.random();
+            // Shot evaluations
+            const attemptTeams = ['home', 'away'];
+            attemptTeams.forEach(attTeam => {
+              const prob = attTeam === 'home' ? probHomeShot : probAwayShot;
+              if (Math.random() < prob) {
+                const defTeam = attTeam === 'home' ? 'away' : 'home';
+                const attIdx = attTeam === 'home' ? 0 : 1;
+                const defIdx = attTeam === 'home' ? 1 : 0;
 
-              if (actionRoll < shotThreshold) {
-                const isZoneEntrySuccess = Math.random() < (offForce / (offForce + defForce + 15));
+                const attF = getPlayersOnIce(attTeam, 'f');
+                const attD = getPlayersOnIce(attTeam, 'd');
+                const defF = getPlayersOnIce(defTeam, 'f');
+                const defD = getPlayersOnIce(defTeam, 'd');
+                const defG = getPlayersOnIce(defTeam, 'g');
+                
+                if (!defG) return;
+
+                const attOffStr = getOffensiveForce(attF, attD);
+                const defDefStr = getDefensiveForce(defD, defF, defG);
+
+                const isZoneEntrySuccess = Math.random() < (attOffStr / (attOffStr + defDefStr + 15));
                 setPeriodStats(prev => {
                   const updated = [...prev];
                   const ps = { ...updated[pIndex] };
@@ -737,7 +759,7 @@ Joseph WollG82ButterflyElite8483848177`;
                 });
 
                 if (isZoneEntrySuccess) {
-                  const shotQuality = (offForce / defForce) * Math.random();
+                  const shotQuality = (attOffStr / defDefStr) * Math.random();
                   const isHighDanger = shotQuality > 1.15;
 
                   setPeriodStats(prev => {
@@ -749,7 +771,7 @@ Joseph WollG82ButterflyElite8483848177`;
                     return updated;
                   });
 
-                  const isBlocked = Math.random() < (defForce / 250);
+                  const isBlocked = Math.random() < (defDefStr / 250);
                   if (isBlocked) {
                     setPeriodStats(prev => {
                       const updated = [...prev];
@@ -761,7 +783,7 @@ Joseph WollG82ButterflyElite8483848177`;
                     return;
                   }
 
-                  // Increment active shots
+                  // Increment net shots
                   if (attTeam === 'home') s.homeShots++; else s.awayShots++;
                   if (s.stats[defTeam].goalies[defG.id]) s.stats[defTeam].goalies[defG.id].sa++;
                   
@@ -778,30 +800,39 @@ Joseph WollG82ButterflyElite8483848177`;
                     return updated;
                   });
 
-                  const goalieSkill = defG.ovr / 100;
-                  let saveProb = 0.88 + (goalieSkill * 0.08);
-                  if (isHighDanger) saveProb -= 0.16;
+                  // conversion rate ~9.5%
+                  let goalChance = 0.095;
 
-                  // Pacing goals to strictly hit pre-rolled NHL distributions
-                  const currentTotalGoals = s.homeScore + s.awayScore;
-                  const targetGoals = s.targetGoals || 5;
-                  let pacingModifier = 1.0;
-                  
-                  if (currentTotalGoals >= targetGoals) {
-                    pacingModifier = 0.02; // Extrêmement bas pour bloquer le score sur l'objectif NHL défini
-                  } else {
-                    const regulatoryTimeRemaining = Math.max(1, s.time + (3 - Math.min(3, s.period)) * 1200);
-                    const expectedRemainingSeconds = regulatoryTimeRemaining;
-                    const goalsNeeded = targetGoals - currentTotalGoals;
-                    
-                    const paceIntensity = (goalsNeeded / (expectedRemainingSeconds / 100)); 
-                    pacingModifier = Math.min(3.5, Math.max(0.2, paceIntensity * 2.2));
+                  const attRating = attOffStr;
+                  const defRating = defDefStr;
+                  const goalieOvr = defG.ovr;
+
+                  if (attRating >= 88) goalChance += 0.025; // Elite attack
+                  else if (attRating <= 81) goalChance -= 0.020; // Weak attack
+                  else goalChance += ((attRating - 84) * 0.006);
+
+                  if (goalieOvr >= 87) goalChance -= 0.025; // Elite goalie
+                  else if (goalieOvr <= 81) goalChance += 0.020; // Weak goalie
+                  else goalieChance = goalChance - ((goalieOvr - 84) * 0.007);
+
+                  if (s.powerplay.active && s.powerplay.team === attTeam) {
+                    goalChance += 0.035;
                   }
 
-                  const baseGoalChance = 1.0 - saveProb;
-                  const adjustedGoalChance = baseGoalChance * pacingModifier;
-                  
-                  if (Math.random() < adjustedGoalChance) {
+                  if (s.period === 3) {
+                    const scoreDiff = attTeam === 'home' ? s.homeScore - s.awayScore : s.awayScore - s.homeScore;
+                    if (scoreDiff <= -2) goalChance += 0.020; // boost desperate attack quality
+                    else if (scoreDiff >= 2) goalChance -= 0.015; // drop leading risk
+                  }
+
+                  const isGoaliePulled = defTeam === 'home' ? s.homeGoaliePulled : s.awayGoaliePulled;
+                  if (isGoaliePulled) {
+                    goalChance = 0.65; // Clear Empty Net shot
+                  }
+
+                  goalChance = Math.max(0.02, Math.min(0.85, goalChance));
+
+                  if (Math.random() < goalChance) {
                     if (attTeam === 'home') s.homeScore++; else s.awayScore++;
                     if (s.stats[defTeam].goalies[defG.id]) s.stats[defTeam].goalies[defG.id].ga++;
                     if (shooter && s.stats[attTeam].skaters[shooter.id]) {
@@ -832,7 +863,6 @@ Joseph WollG82ButterflyElite8483848177`;
                       const ps = { ...updated[pIndex] };
                       ps.goals[attIdx] += 1;
                       
-                      // Handle Powerplay Goal tracking
                       if (s.powerplay.active && s.powerplay.team === attTeam) {
                         ps.ppGoals[attIdx] += 1;
                       }
@@ -840,7 +870,6 @@ Joseph WollG82ButterflyElite8483848177`;
                       return updated;
                     });
 
-                    // Resolve powerplay on powerplay goal
                     if (s.powerplay.active && s.powerplay.team === attTeam) {
                       s.powerplay.active = false;
                       s.powerplay.team = null;
@@ -856,8 +885,25 @@ Joseph WollG82ButterflyElite8483848177`;
                     if (s.stats[defTeam].goalies[defG.id]) s.stats[defTeam].goalies[defG.id].sv++;
                   }
                 }
-              } 
-              else if (actionRoll < 0.78) {
+              }
+            });
+
+            // 4. OTHER RANDOM GAME INCIDENTS (Hits, Penalties, Revirements)
+            const eventRoll = Math.random();
+            if (eventRoll < 0.04) { 
+              const posRoll = Math.random();
+              const attTeam = posRoll > 0.5 ? 'home' : 'away';
+              const defTeam = attTeam === 'home' ? 'away' : 'home';
+              const attIdx = attTeam === 'home' ? 0 : 1;
+              const defIdx = attTeam === 'home' ? 1 : 0;
+
+              const attF = getPlayersOnIce(attTeam, 'f');
+              const defF = getPlayersOnIce(defTeam, 'f');
+              const defD = getPlayersOnIce(defTeam, 'd');
+              
+              const actionRoll = Math.random();
+
+              if (actionRoll < 0.35) {
                 const hitter = defD.concat(defF)[Math.floor(Math.random() * (defD.length + defF.length))];
                 const victim = attF[Math.floor(Math.random() * attF.length)];
                 
@@ -886,7 +932,7 @@ Joseph WollG82ButterflyElite8483848177`;
                   addEvent('injury', `🚑 BLESSURE: ${victim.name} quitte pour le vestiaire.`, attTeam);
                 }
               } 
-              else if (actionRoll < 0.90) {
+              else if (actionRoll < 0.70) {
                 setPeriodStats(prev => {
                   const updated = [...prev];
                   const ps = { ...updated[pIndex] };
