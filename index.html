@@ -11,15 +11,15 @@
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- React & ReactDOM -->
+    <!-- React & ReactDOM CDNs -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     
-    <!-- Babel for in-browser JSX transpilation -->
+    <!-- Babel for in-browser JSX compilation -->
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 
     <style>
-        /* Custom scrollbar for better look */
+        /* Custom premium scrollbar styling */
         .custom-scrollbar::-webkit-scrollbar {
             width: 6px;
         }
@@ -43,7 +43,7 @@
     <script type="text/babel">
         const { useState, useEffect, useRef } = React;
 
-        // --- EFFECTIFS EXEMPLES POUR CHARGEMENT RAPIDE (DEMO) ---
+        // --- EFFECTIFS DE DÉMO (Optionnels - pré-chargés) ---
         const demoSkatersHome = `Nick SuzukiC89Two-Way Forward85889189889191
 Cole CaufieldAD89Sniper76948981919291
 Juraj SlafkovskýAG86Power Forward91878583858786
@@ -87,7 +87,7 @@ Ilya LyubushkinDD79Defensive Defenseman89737181766771`;
         const demoGoaliesAway = `Ilya SamsonovG83HybridStarter8583817673
 Joseph WollG82ButterflyElite8483848177`;
 
-        // Positions ordered according to strict prompt request
+        // Positions ordered as strictly requested
         const SORTED_POSITIONS = [
           'C', 'C/AG', 'CAG', 'C/AD', 'CAD', 'A', 'AG', 'AD', 'AG/AD', 'AD/AG', 
           'D', 'DG', 'DD', 'DG/DD', 'DD/DG', 'G'
@@ -98,6 +98,26 @@ Joseph WollG82ButterflyElite8483848177`;
         const GOALIE_POSITIONS = ['G'];
 
         function NHLSimulator() {
+          const simRef = useRef({
+            status: 'idle', period: 1, time: 1200, homeScore: 0, awayScore: 0, homeShots: 0, awayShots: 0,
+            targetGoals: 5,
+            targetShotsHome: 28,
+            targetShotsAway: 28,
+            events: [{ id: Date.now(), time: '20:00', period: 1, type: 'info', text: 'Bienvenue au Centre de simulation LNH Pro. Match prêt.' }],
+            currentLineHome: { f: 'l1', d: 'd1' },
+            currentLineAway: { f: 'l1', d: 'd1' },
+            stats: {
+              home: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } },
+              away: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } }
+            },
+            injuries: [],
+            homeGoaliePulled: false,
+            awayGoaliePulled: false,
+            goalsInLast6MinsHome: [],
+            goalsInLast6MinsAway: [],
+            powerplay: { active: false, team: null, timeLeft: 0 }
+          });
+
           const [activeTab, setActiveTab] = useState('config'); // config, sim, results
           const [configStep, setConfigStep] = useState(1); // 1: Paste/Import, 2: Selection
           
@@ -120,7 +140,7 @@ Joseph WollG82ButterflyElite8483848177`;
             away: { skaters: [], goalies: [] }
           });
 
-          // Active Game Lines - strictly empty at start so user has to configure
+          // Active Game Lines - strictly empty at start so user can select manually
           const [lines, setLines] = useState({
             home: {
               forwards: { l1: [null, null, null], l2: [null, null, null], l3: [null, null, null], l4: [null, null, null] },
@@ -161,39 +181,37 @@ Joseph WollG82ButterflyElite8483848177`;
             createInitialPeriodStats(), // Period 1
             createInitialPeriodStats(), // Period 2
             createInitialPeriodStats(), // Period 3
-            createInitialPeriodStats()  // OT (Prolongation)
+            createInitialPeriodStats()  // OT
           ]);
-
-          // Simulation Engine State (Ref based)
-          const simRef = useRef({
-            status: 'idle', // idle, playing, paused, intermission, finished
-            period: 1,
-            time: 1200, // 20 mins * 60 secs
-            homeScore: 0,
-            awayScore: 0,
-            homeShots: 0,
-            awayShots: 0,
-            events: [],
-            currentLineHome: { f: 'l1', d: 'd1' },
-            currentLineAway: { f: 'l1', d: 'd1' },
-            stats: {
-              home: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } },
-              away: { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } }
-            },
-            injuries: [],
-            homeGoaliePulled: false,
-            awayGoaliePulled: false,
-            goalsInLast6MinsHome: [], 
-            goalsInLast6MinsAway: [],
-            powerplay: { active: false, team: null, timeLeft: 0 }
-          });
 
           const [uiState, setUiState] = useState({ ...simRef.current });
           const [simSpeed, setSimSpeed] = useState(70); // ms per game-tick
           const [isCopied, setIsCopied] = useState(null);
           const [configTeamView, setConfigTeamView] = useState('home');
 
-          // --- LOGIQUE DE GÉNÉRATION DES TIRS (Nouvelles formules) ---
+          // Helper function shared across tabs to aggregate stats dynamically
+          const aggregateStats = () => {
+            const statsAgg = createInitialPeriodStats();
+            periodStats.forEach(p => {
+              statsAgg.shots[0] += p.shots[0]; statsAgg.shots[1] += p.shots[1];
+              statsAgg.goals[0] += p.goals[0]; statsAgg.goals[1] += p.goals[1];
+              statsAgg.chances[0] += p.chances[0]; statsAgg.chances[1] += p.chances[1];
+              statsAgg.dangerChances[0] += p.dangerChances[0]; statsAgg.dangerChances[1] += p.dangerChances[1];
+              statsAgg.possession[0] += p.possession[0]; statsAgg.possession[1] += p.possession[1];
+              statsAgg.hits[0] += p.hits[0]; statsAgg.hits[1] += p.hits[1];
+              statsAgg.blocks[0] += p.blocks[0]; statsAgg.blocks[1] += p.blocks[1];
+              statsAgg.takeaways[0] += p.takeaways[0]; statsAgg.takeaways[1] += p.takeaways[1];
+              statsAgg.giveaways[0] += p.giveaways[0]; statsAgg.giveaways[1] += p.giveaways[1];
+              statsAgg.entries[0] += p.entries[0]; statsAgg.entries[1] += p.entries[1];
+              statsAgg.exits[0] += p.exits[0]; statsAgg.exits[1] += p.exits[1];
+              statsAgg.faceoffs[0] += p.faceoffs[0]; statsAgg.faceoffs[1] += p.faceoffs[1];
+              statsAgg.faceoffsTotal += p.faceoffsTotal;
+              statsAgg.ppGoals[0] += p.ppGoals[0]; statsAgg.ppGoals[1] += p.ppGoals[1];
+              statsAgg.ppOpps[0] += p.ppOpps[0]; statsAgg.ppOpps[1] += p.ppOpps[1];
+            });
+            return statsAgg;
+          };
+
           const getOffensiveForce = (forwards, defensemen) => {
             const f = forwards.filter(Boolean);
             const d = defensemen.filter(Boolean);
@@ -240,7 +258,6 @@ Joseph WollG82ButterflyElite8483848177`;
           const getPosOrder = (pos) => {
             const formattedPos = pos.trim().toUpperCase();
             const index = SORTED_POSITIONS.indexOf(formattedPos);
-            // If pos doesn't match exactly, fallback but always before the Goalie (G) which is index 15
             if (index === -1) {
               return 14; 
             }
@@ -254,7 +271,6 @@ Joseph WollG82ButterflyElite8483848177`;
             if (skatersText) {
               const skaterLines = skatersText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
               skaterLines.forEach(line => {
-                // Extended support for multiple combined/hybrid positions
                 const strictRegex = /^([A-Za-zÀ-ÿ\s\.\-\'\’]+?)\s*(C\/AG|CAG|C\/AD|CAD|AG\/AD|AD\/AG|DG\/DD|DD\/DG|C|A|AG|AD|DG|DD|D)\s*(\d{2,3})\s*(Two-Way Forward|Sniper|Power Forward|Playmaker|Two-Way Defenseman|Offensive Defenseman|Defensive Defenseman|Enforcer|Grinder|Bagarreur|Énergique|Polyvalent|Défensif|Fabricant|Franc-tireur|Robuste)\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})\s*(\d{2})/i;
                 const match = line.match(strictRegex);
 
@@ -328,7 +344,6 @@ Joseph WollG82ButterflyElite8483848177`;
             const skaters = [...poolData.skaters];
             const goalies = [...poolData.goalies];
 
-            // Filter lists based on positions list
             const fList = skaters.filter(p => FORWARD_POSITIONS.includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
             const dList = skaters.filter(p => DEFENSE_POSITIONS.includes(p.pos)).sort((a,b) => b.ovr - a.ovr);
             const gList = [...goalies].sort((a,b) => b.ovr - a.ovr);
@@ -416,6 +431,18 @@ Joseph WollG82ButterflyElite8483848177`;
             });
           };
 
+          const rollShotsDistribution = () => {
+            const r = Math.random();
+            // Strictly ensures 80% of games are between 20 and 35 shots
+            if (r < 0.05) return 10 + Math.floor(Math.random() * 5); // 10-14 (5%)
+            if (r < 0.10) return 15 + Math.floor(Math.random() * 5); // 15-19 (5%)
+            if (r < 0.50) return 20 + Math.floor(Math.random() * 8); // 20-27 (40%)
+            if (r < 0.90) return 28 + Math.floor(Math.random() * 8); // 28-35 (40%) -> 80% total in 20-35
+            if (r < 0.97) return 36 + Math.floor(Math.random() * 5); // 36-40 (7%)
+            if (r < 0.99) return 41 + Math.floor(Math.random() * 5); // 41-45 (2%)
+            return 46 + Math.floor(Math.random() * 10); // 46-55 (1%)
+          };
+
           const resetSimState = () => {
             const initStats = (teamId) => {
               const s = { skaters: {}, goalies: {}, team: { hits: 0, pim: 0, foWins: 0 } };
@@ -430,8 +457,35 @@ Joseph WollG82ButterflyElite8483848177`;
               return s;
             };
 
+            // Roll target goals strictly based on requested NHL distributions
+            const r = Math.random();
+            let targetGoals = 5;
+            if (r < 0.05) { 
+              targetGoals = Math.floor(Math.random() * 3); // 0, 1 or 2 (3-5% for 2 goals or less)
+            } else if (r < 0.16) { 
+              targetGoals = 3; // ~11% for 3 goals
+            } else if (r < 0.31) { 
+              targetGoals = 4; // ~15% for 4 goals
+            } else if (r < 0.55) { 
+              targetGoals = 5; // ~24% for 5 goals
+            } else if (r < 0.74) { 
+              targetGoals = 7; // ~19% for 7 goals (Most frequent scenario here)
+            } else if (r < 0.87) { 
+              targetGoals = 8; // ~13% for 8 goals
+            } else if (r < 0.97) { 
+              targetGoals = Math.random() < 0.5 ? 9 : 10; // ~10% for 9-10 goals
+            } else { 
+              targetGoals = 11 + Math.floor(Math.random() * 3); // <3% for 11+ goals
+            }
+
+            const targetShotsHome = rollShotsDistribution();
+            const targetShotsAway = rollShotsDistribution();
+
             simRef.current = {
               status: 'idle', period: 1, time: 1200, homeScore: 0, awayScore: 0, homeShots: 0, awayShots: 0,
+              targetGoals: targetGoals,
+              targetShotsHome: targetShotsHome,
+              targetShotsAway: targetShotsAway,
               events: [{ id: Date.now(), time: '20:00', period: 1, type: 'info', text: 'Bienvenue au Centre de simulation LNH Pro. Match prêt.' }],
               currentLineHome: { f: 'l1', d: 'd1' },
               currentLineAway: { f: 'l1', d: 'd1' },
@@ -485,12 +539,10 @@ Joseph WollG82ButterflyElite8483848177`;
             let awayWins = 0;
             let shootoutEvents = [];
             
-            // First 3 rounds
             for (let i = 0; i < 3; i++) {
               const hShooter = homeShooters[i % homeShooters.length] || { name: "Joueur Dom", sht: 80 };
               const aShooter = awayShooters[i % awayShooters.length] || { name: "Joueur Vis", sht: 80 };
               
-              // Home shooter vs Away goalie
               const hGoal = Math.random() < (hShooter.sht / (hShooter.sht + (awayGoalie.ovr || 80) + 15));
               if (hGoal) {
                 homeWins++;
@@ -499,7 +551,6 @@ Joseph WollG82ButterflyElite8483848177`;
                 shootoutEvents.push(`Ronde ${i+1} ${homeLogo}: ❌ ARRÊT! Le gardien bloque ${hShooter.name}.`);
               }
               
-              // Away shooter vs Home goalie
               const aGoal = Math.random() < (aShooter.sht / (aShooter.sht + (homeGoalie.ovr || 80) + 15));
               if (aGoal) {
                 awayWins++;
@@ -509,7 +560,6 @@ Joseph WollG82ButterflyElite8483848177`;
               }
             }
             
-            // Sudden death if tied
             let currentRound = 4;
             while (homeWins === awayWins) {
               const hShooter = homeShooters[(currentRound - 1) % homeShooters.length] || { name: "Joueur Dom", sht: 80 };
@@ -527,12 +577,11 @@ Joseph WollG82ButterflyElite8483848177`;
                 shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${homeLogo}: ❌ ARRÊT! Stoppé.`);
                 shootoutEvents.push(`Morte subite (Ronde ${currentRound}) ${awayLogo}: 🥅 BUT! ${aShooter.name} tranche le débat.`);
               } else {
-                shootoutEvents.push(`Morte subite (Ronde ${currentRound}): Égalité persistante (${hGoal ? 'But/But' : 'Arrêt/Arrêt'}).`);
+                shootoutEvents.push(`Morte subite (Ronde ${currentRound}): Égalité persistante (${hGoal ? 'But' : 'Arrêt'} / ${aGoal ? 'But' : 'Arrêt'}).`);
               }
               currentRound++;
             }
             
-            // Apply Shootout Outcome (1 additional goal for the winning team but doesn't affect player stats)
             if (homeWins > awayWins) {
               s.homeScore++;
               addEvent('goal', `🏆 VICTOIRE EN TIRS DE BARRAGE - ${homeTeamName}! Score final: ${s.homeScore} - ${s.awayScore}`, 'home');
@@ -612,9 +661,9 @@ Joseph WollG82ButterflyElite8483848177`;
 
               const homeOff = hAtt.reduce((sum, p) => sum + p.off, 0) + hDef.reduce((sum, p) => sum + p.off, 0);
               const awayOff = aAtt.reduce((sum, p) => sum + p.off, 0) + aDef.reduce((sum, p) => sum + p.off, 0);
-              const homePossProb = homeOff / (homeOff + awayOff);
+              const homePossPossibility = homeOff / (homeOff + awayOff + 1);
 
-              if (controlRoll < homePossProb) pStats.possession[0]++; else pStats.possession[1]++;
+              if (controlRoll < homePossPossibility) pStats.possession[0]++; else pStats.possession[1]++;
               updated[pIndex] = pStats;
               return updated;
             });
@@ -712,6 +761,7 @@ Joseph WollG82ButterflyElite8483848177`;
                     return;
                   }
 
+                  // Increment active shots
                   if (attTeam === 'home') s.homeShots++; else s.awayShots++;
                   if (s.stats[defTeam].goalies[defG.id]) s.stats[defTeam].goalies[defG.id].sa++;
                   
@@ -732,10 +782,26 @@ Joseph WollG82ButterflyElite8483848177`;
                   let saveProb = 0.88 + (goalieSkill * 0.08);
                   if (isHighDanger) saveProb -= 0.16;
 
-                  const goalDistribution = [0.05, 0.15, 0.25, 0.30, 0.15, 0.08, 0.03, 0.01]; 
-                  const distributionTweak = goalDistribution[s.homeScore + s.awayScore] || 0.02;
+                  // Pacing goals to strictly hit pre-rolled NHL distributions
+                  const currentTotalGoals = s.homeScore + s.awayScore;
+                  const targetGoals = s.targetGoals || 5;
+                  let pacingModifier = 1.0;
                   
-                  if (Math.random() > (saveProb + (distributionTweak * 0.1))) {
+                  if (currentTotalGoals >= targetGoals) {
+                    pacingModifier = 0.02; // Extrêmement bas pour bloquer le score sur l'objectif NHL défini
+                  } else {
+                    const regulatoryTimeRemaining = Math.max(1, s.time + (3 - Math.min(3, s.period)) * 1200);
+                    const expectedRemainingSeconds = regulatoryTimeRemaining;
+                    const goalsNeeded = targetGoals - currentTotalGoals;
+                    
+                    const paceIntensity = (goalsNeeded / (expectedRemainingSeconds / 100)); 
+                    pacingModifier = Math.min(3.5, Math.max(0.2, paceIntensity * 2.2));
+                  }
+
+                  const baseGoalChance = 1.0 - saveProb;
+                  const adjustedGoalChance = baseGoalChance * pacingModifier;
+                  
+                  if (Math.random() < adjustedGoalChance) {
                     if (attTeam === 'home') s.homeScore++; else s.awayScore++;
                     if (s.stats[defTeam].goalies[defG.id]) s.stats[defTeam].goalies[defG.id].ga++;
                     if (shooter && s.stats[attTeam].skaters[shooter.id]) {
@@ -765,9 +831,21 @@ Joseph WollG82ButterflyElite8483848177`;
                       const updated = [...prev];
                       const ps = { ...updated[pIndex] };
                       ps.goals[attIdx] += 1;
+                      
+                      // Handle Powerplay Goal tracking
+                      if (s.powerplay.active && s.powerplay.team === attTeam) {
+                        ps.ppGoals[attIdx] += 1;
+                      }
                       updated[pIndex] = ps;
                       return updated;
                     });
+
+                    // Resolve powerplay on powerplay goal
+                    if (s.powerplay.active && s.powerplay.team === attTeam) {
+                      s.powerplay.active = false;
+                      s.powerplay.team = null;
+                      addEvent('info', "But en avantage numérique! La punition prend fin.");
+                    }
 
                     let msg = `🥅 BUT ${attTeam === 'home' ? homeTeamName : awayTeamName}! ${shooter ? shooter.name : 'Attaquant'}`;
                     if (assistText) msg += ` (Passes: ${assistText.slice(0, -2)})`;
@@ -901,7 +979,6 @@ Joseph WollG82ButterflyElite8483848177`;
             const homeWon = s.homeScore > s.awayScore;
             const wentToOT = s.period >= 4;
 
-            // Attribute goalie outcomes
             const hGoalie = lines.home.goalies.starter;
             const aGoalie = lines.away.goalies.starter;
 
@@ -922,7 +999,7 @@ Joseph WollG82ButterflyElite8483848177`;
               }
             }
 
-            // Progression / Regression stats engine
+            // Stat Progression / Regression engine
             ['home', 'away'].forEach(tid => {
               const roster = [
                 ...lines[tid].forwards.l1, ...lines[tid].forwards.l2, ...lines[tid].forwards.l3, ...lines[tid].forwards.l4,
@@ -970,7 +1047,7 @@ Joseph WollG82ButterflyElite8483848177`;
           const handleStartNextPeriod = () => {
             const s = simRef.current;
             s.period++;
-            s.time = s.period >= 4 ? 300 : 1200; // Prolongation is 5 mins (300 secs)
+            s.time = s.period >= 4 ? 300 : 1200; // Prolongation: 5 mins
             s.status = 'playing';
             setShowIntermission(false);
             setUiState({ ...s });
@@ -994,6 +1071,23 @@ Joseph WollG82ButterflyElite8483848177`;
               console.error("Impossible de copier", err);
             }
             window.getSelection().removeAllRanges();
+          };
+
+          // Stats formatting helpers for faceoffs and penalty kill (désavantage numérique)
+          const getFaceoffDisplay = (teamIdx, agg) => {
+            const wins = agg.faceoffs[teamIdx];
+            const total = agg.faceoffsTotal;
+            const pct = total > 0 ? Math.round((wins / total) * 100) : 0;
+            return `${wins}/${total} (${pct} %)`;
+          };
+
+          const getPKDisplay = (teamIdx, agg) => {
+            const oppIdx = teamIdx === 0 ? 1 : 0;
+            const oppPP = agg.ppOpps[oppIdx];
+            const oppPPG = agg.ppGoals[oppIdx];
+            const pkKilled = oppPP - oppPPG;
+            const pct = oppPP > 0 ? Math.round((pkKilled / oppPP) * 100) : 100;
+            return `${pkKilled}/${oppPP} (${pct} %)`;
           };
 
           const renderConfigTab = () => {
@@ -1176,7 +1270,7 @@ Joseph WollG82ButterflyElite8483848177`;
                   </div>
 
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    {/* COLONNE GAUCHE - LISTE TRIÉE PAR POSITION STRICTEMENT SÉLECTIONNABLE */}
+                    {/* LEFT LIST - SELECTABLE PLAYERS ORDERED STRICTLY */}
                     <div className="lg:col-span-5 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col h-[650px]">
                        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-4">
                          <div className="flex items-center space-x-3">
@@ -1188,7 +1282,6 @@ Joseph WollG82ButterflyElite8483848177`;
                        
                        <div className="flex-1 overflow-y-auto pr-2 space-y-1.5 custom-scrollbar">
                          {(() => {
-                           // Tri strict : C, C/AG, CAG, C/AD, CAD, A, AG, AD, AG/AD, AD/AG, D, DG, DD, DG/DD, DD/DG, G
                            const sortedPool = [...(pool.skaters || []), ...(pool.goalies || [])].sort((a, b) => getPosOrder(a.pos) - getPosOrder(b.pos));
                            
                            return sortedPool.map(p => {
@@ -1216,6 +1309,7 @@ Joseph WollG82ButterflyElite8483848177`;
                        </div>
                     </div>
 
+                    {/* RIGHT DEPTH CHART STRUCTURE */}
                     <div className="lg:col-span-7 bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col h-[650px] overflow-y-auto custom-scrollbar">
                       <h3 className="font-bold text-white uppercase text-sm mb-5 flex items-center">
                         <i className="fas fa-shield-halved w-4 h-4 mr-2 text-slate-400 flex items-center justify-center"></i>
@@ -1319,31 +1413,8 @@ Joseph WollG82ButterflyElite8483848177`;
           };
 
           const renderSimTab = () => {
-            const aggregateStats = () => {
-              const statsAgg = createInitialPeriodStats();
-              periodStats.forEach(p => {
-                statsAgg.shots[0] += p.shots[0]; statsAgg.shots[1] += p.shots[1];
-                statsAgg.goals[0] += p.goals[0]; statsAgg.goals[1] += p.goals[1];
-                statsAgg.chances[0] += p.chances[0]; statsAgg.chances[1] += p.chances[1];
-                statsAgg.dangerChances[0] += p.dangerChances[0]; statsAgg.dangerChances[1] += p.dangerChances[1];
-                statsAgg.possession[0] += p.possession[0]; statsAgg.possession[1] += p.possession[1];
-                statsAgg.hits[0] += p.hits[0]; statsAgg.hits[1] += p.hits[1];
-                statsAgg.blocks[0] += p.blocks[0]; statsAgg.blocks[1] += p.blocks[1];
-                statsAgg.takeaways[0] += p.takeaways[0]; statsAgg.takeaways[1] += p.takeaways[1];
-                statsAgg.giveaways[0] += p.giveaways[0]; statsAgg.giveaways[1] += p.giveaways[1];
-                statsAgg.entries[0] += p.entries[0]; statsAgg.entries[1] += p.entries[1];
-                statsAgg.exits[0] += p.exits[0]; statsAgg.exits[1] += p.exits[1];
-                statsAgg.faceoffs[0] += p.faceoffs[0]; statsAgg.faceoffs[1] += p.faceoffs[1];
-                statsAgg.faceoffsTotal += p.faceoffsTotal;
-                statsAgg.ppGoals[0] += p.ppGoals[0]; statsAgg.ppGoals[1] += p.ppGoals[1];
-                statsAgg.ppOpps[0] += p.ppOpps[0]; statsAgg.ppOpps[1] += p.ppOpps[1];
-              });
-              return statsAgg;
-            };
-
             const aggregated = aggregateStats();
             
-            // Adjust shifts layout to 3v3 style if in Overtime (P4+)
             const isOvertime = uiState.period >= 4;
             const activeHLine = isOvertime 
               ? (lines.home.forwards[uiState.currentLineHome.f]?.slice(0, 1).concat(lines.home.defense[uiState.currentLineHome.d]?.slice(0, 2)) || []).filter(Boolean)
@@ -1356,58 +1427,58 @@ Joseph WollG82ButterflyElite8483848177`;
             return (
               <div className="space-y-6 animate-in fade-in duration-300">
                 {showIntermission && (
-                  <div className="fixed inset-0 bg-black/90 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+                  <div className="fixed inset-0 bg-black/95 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
                     <div className="bg-slate-900 border border-slate-800 w-full max-w-2xl rounded-2xl p-6 space-y-6">
                       <div className="flex justify-between items-center border-b border-slate-800 pb-4">
                         <div className="flex items-center space-x-2">
-                          <i className="fas fa-trophy text-yellow-500 text-2xl animate-bounce"></i>
-                          <h3 className="text-lg font-black text-white tracking-widest uppercase">FIN DE LA PÉRIODE {intermissionPeriod >= 4 ? 'DE PROLONGATION' : intermissionPeriod}</h3>
+                          <i className="fas fa-trophy text-yellow-500 animate-bounce"></i>
+                          <h3 className="text-lg font-black text-white tracking-widest uppercase">FIN DE LA PÉRIODE {intermissionPeriod === 4 ? 'PROL' : intermissionPeriod}</h3>
                         </div>
-                        <span className="text-xs bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-mono">EA SPORTS SIMULATION ENGINE</span>
+                        <span className="text-xs bg-slate-800 px-3 py-1 rounded-full text-slate-400 font-mono">EA SPORTS SIM ENGINE</span>
                       </div>
 
-                      <div className="flex justify-around items-center bg-slate-950 p-4 rounded-xl border border-slate-800/80 text-center">
+                      <div className="flex justify-around items-center bg-slate-950 p-4 rounded-xl border border-slate-800/85 text-center">
                         <div>
-                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2" style={{ backgroundColor: homeColor }}>
+                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2 text-sm shadow-md" style={{ backgroundColor: homeColor }}>
                             {homeLogo}
                           </div>
                           <div className="text-slate-400 text-xs uppercase font-bold">{homeTeamName}</div>
                         </div>
                         <div className="text-3xl font-black text-white">{uiState.homeScore} - {uiState.awayScore}</div>
                         <div>
-                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2" style={{ backgroundColor: awayColor }}>
+                          <div className="w-12 h-12 rounded-full mx-auto flex items-center justify-center font-bold text-white mb-2 text-sm shadow-md" style={{ backgroundColor: awayColor }}>
                             {awayLogo}
                           </div>
                           <div className="text-slate-400 text-xs uppercase font-bold">{awayTeamName}</div>
                         </div>
                       </div>
 
-                      <div className="space-y-2">
-                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Statistiques cumulées</h4>
-                        {renderComparisonRow("Tirs au but", periodStats[intermissionPeriod-1].shots[0], periodStats[intermissionPeriod-1].shots[1])}
+                      <div className="space-y-1.5 custom-scrollbar max-h-96 overflow-y-auto pr-1">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3 text-center">Statistiques de la Période</h4>
+                        {renderComparisonRow("Tirs au but", periodStats[intermissionPeriod-1].shots[0], periodStats[intermissionPeriod-1].shots[1], true)}
                         {renderComparisonRow("Buts", periodStats[intermissionPeriod-1].goals[0], periodStats[intermissionPeriod-1].goals[1], true)}
                         {renderComparisonRow("Chances de marquer", periodStats[intermissionPeriod-1].chances[0], periodStats[intermissionPeriod-1].chances[1])}
                         {renderComparisonRow("Chances dangereuses", periodStats[intermissionPeriod-1].dangerChances[0], periodStats[intermissionPeriod-1].dangerChances[1])}
-                        {renderComparisonRow(
-                          "Temps de possession (sec)", 
-                          periodStats[intermissionPeriod-1].possession[0], 
-                          periodStats[intermissionPeriod-1].possession[1]
-                        )}
                         {renderComparisonRow("Mises en échec", periodStats[intermissionPeriod-1].hits[0], periodStats[intermissionPeriod-1].hits[1])}
-                        {renderComparisonRow("Blocages de tirs", periodStats[intermissionPeriod-1].blocks[0], periodStats[intermissionPeriod-1].blocks[1])}
+                        {renderComparisonRow("Tirs bloqués", periodStats[intermissionPeriod-1].blocks[0], periodStats[intermissionPeriod-1].blocks[1])}
                         {renderComparisonRow("Revirements provoqués", periodStats[intermissionPeriod-1].takeaways[0], periodStats[intermissionPeriod-1].takeaways[1])}
                         {renderComparisonRow("Revirements causés", periodStats[intermissionPeriod-1].giveaways[0], periodStats[intermissionPeriod-1].giveaways[1])}
                         {renderComparisonRow("Entrées de zone réussies", periodStats[intermissionPeriod-1].entries[0], periodStats[intermissionPeriod-1].entries[1])}
                         {renderComparisonRow("Sorties de zone réussies", periodStats[intermissionPeriod-1].exits[0], periodStats[intermissionPeriod-1].exits[1])}
                         {renderComparisonRow(
-                          "Mise au jeu gagnée (%)", 
-                          periodStats[intermissionPeriod-1].faceoffsTotal > 0 ? `${Math.round((periodStats[intermissionPeriod-1].faceoffs[0] / periodStats[intermissionPeriod-1].faceoffsTotal)*100)} %` : '0 %',
-                          periodStats[intermissionPeriod-1].faceoffsTotal > 0 ? `${Math.round((periodStats[intermissionPeriod-1].faceoffs[1] / periodStats[intermissionPeriod-1].faceoffsTotal)*100)} %` : '0 %'
+                          "Mises au jeu gagnées", 
+                          getFaceoffDisplay(0, periodStats[intermissionPeriod-1]),
+                          getFaceoffDisplay(1, periodStats[intermissionPeriod-1])
                         )}
                         {renderComparisonRow(
                           "Avantage numérique", 
                           `${periodStats[intermissionPeriod-1].ppGoals[0]}/${periodStats[intermissionPeriod-1].ppOpps[0]}`,
                           `${periodStats[intermissionPeriod-1].ppGoals[1]}/${periodStats[intermissionPeriod-1].ppOpps[1]}`
+                        )}
+                        {renderComparisonRow(
+                          "Désavantage numérique", 
+                          getPKDisplay(0, periodStats[intermissionPeriod-1]),
+                          getPKDisplay(1, periodStats[intermissionPeriod-1])
                         )}
                       </div>
 
@@ -1417,31 +1488,31 @@ Joseph WollG82ButterflyElite8483848177`;
                           className="bg-blue-600 hover:bg-blue-500 text-white font-bold px-8 py-3 rounded-xl shadow-lg flex items-center space-x-2 transition-all"
                         >
                           <span>DÉBUTER LA PÉRIODE SUIVANTE</span>
-                          <i className="fas fa-chevron-right w-5 h-5 flex items-center"></i>
+                          <i className="fas fa-chevron-right"></i>
                         </button>
                       </div>
                     </div>
                   </div>
                 )}
 
-                <div className="relative overflow-hidden bg-slate-950 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+                <div className="relative overflow-hidden bg-slate-900 border border-slate-850 rounded-3xl p-6 shadow-2xl">
                   <div className="absolute top-0 right-0 w-96 h-96 bg-blue-600/5 blur-[100px] pointer-events-none rounded-full" />
                   <div className="absolute bottom-0 left-0 w-96 h-96 bg-red-600/5 blur-[100px] pointer-events-none rounded-full" />
 
                   <div className="flex flex-col md:flex-row items-center justify-between gap-6 relative z-10">
                     <div className="flex items-center space-x-6 w-full md:w-2/5">
-                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl transition-transform hover:scale-105" style={{ backgroundColor: homeColor }}>
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl" style={{ backgroundColor: homeColor }}>
                         {homeLogo}
                       </div>
-                      <div className="flex-1">
+                      <div className="flex-1 min-w-0">
                         <h2 className="text-xl font-black text-white uppercase tracking-wider truncate">{homeTeamName}</h2>
                         <div className="text-slate-500 text-xs uppercase font-semibold mt-0.5">Tirs: <span className="text-slate-300 font-mono font-bold text-sm">{uiState.homeShots}</span></div>
                       </div>
                       <div className="text-5xl font-black text-white font-mono">{uiState.homeScore}</div>
                     </div>
 
-                    <div className="flex flex-col items-center justify-center px-4 py-3 bg-slate-900 border border-slate-800 rounded-2xl min-w-[140px]">
-                      <div className="text-slate-400 text-xs font-black uppercase tracking-widest">{uiState.period >= 4 ? 'PROLONGATION' : `PÉRIODE ${uiState.period}`}</div>
+                    <div className="flex flex-col items-center justify-center px-4 py-3 bg-slate-950 border border-slate-800 rounded-2xl min-w-[140px]">
+                      <div className="text-slate-400 text-xs font-black uppercase tracking-widest">Période {uiState.period > 3 ? 'PROL' : uiState.period}</div>
                       <div className="text-2xl font-black font-mono text-emerald-400 mt-1">{formatTime(uiState.time)}</div>
                       {uiState.powerplay.active && (
                         <span className="text-[10px] bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 px-2 py-0.5 rounded-full mt-2 font-black uppercase animate-pulse">
@@ -1456,7 +1527,7 @@ Joseph WollG82ButterflyElite8483848177`;
                         <h2 className="text-xl font-black text-white uppercase tracking-wider truncate">{awayTeamName}</h2>
                         <div className="text-slate-500 text-xs uppercase font-semibold mt-0.5">Tirs: <span className="text-slate-300 font-mono font-bold text-sm">{uiState.awayShots}</span></div>
                       </div>
-                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl transition-transform hover:scale-105" style={{ backgroundColor: awayColor }}>
+                      <div className="w-16 h-16 rounded-2xl flex items-center justify-center font-black text-2xl text-white shadow-xl" style={{ backgroundColor: awayColor }}>
                         {awayLogo}
                       </div>
                     </div>
@@ -1464,16 +1535,12 @@ Joseph WollG82ButterflyElite8483848177`;
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 pt-6 border-t border-slate-800/80 text-xs text-slate-400">
                     <div className="flex items-center space-x-2">
-                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-blue-400 uppercase">
-                        {isOvertime ? '3v3 PRO Dom' : `Présence ${uiState.currentLineHome.f.toUpperCase()}`}
-                      </span>
-                      <span className="text-slate-300 font-medium truncate">{activeHLine.map(p => p ? p.name : 'Remplaçant').join(' - ')}</span>
+                      <span className="text-[10px] font-bold bg-slate-950 border border-slate-800 px-2 py-1 rounded-md text-blue-400 uppercase">Présence {uiState.currentLineHome.f.toUpperCase()}</span>
+                      <span className="text-slate-300 font-medium truncate">{activeHLine.map(p => p.name).join(' - ')}</span>
                     </div>
                     <div className="flex items-center justify-end space-x-2">
-                      <span className="text-slate-300 font-medium truncate">{activeALine.map(p => p ? p.name : 'Remplaçant').join(' - ')}</span>
-                      <span className="text-[10px] font-bold bg-slate-900 border border-slate-800 px-2 py-1 rounded-md text-red-400 uppercase">
-                        {isOvertime ? '3v3 PRO Vis' : `Présence ${uiState.currentLineAway.f.toUpperCase()}`}
-                      </span>
+                      <span className="text-slate-300 font-medium truncate">{activeALine.map(p => p.name).join(' - ')}</span>
+                      <span className="text-[10px] font-bold bg-slate-950 border border-slate-800 px-2 py-1 rounded-md text-red-400 uppercase">Présence {uiState.currentLineAway.f.toUpperCase()}</span>
                     </div>
                   </div>
                 </div>
@@ -1482,27 +1549,27 @@ Joseph WollG82ButterflyElite8483848177`;
                   <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 flex flex-col justify-between">
                     <div className="space-y-4">
                       <h3 className="text-white font-bold text-sm flex items-center">
-                        <i className="fas fa-gear w-4 h-4 mr-2 text-blue-500"></i> Console EA
+                        <i className="fas fa-sliders mr-2 text-blue-500"></i> Console EA
                       </h3>
 
                       <div className="flex justify-center space-x-4 py-4">
                         <button 
                           onClick={toggleSim} 
                           disabled={uiState.status === 'finished'} 
-                          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white p-5 rounded-full transition-transform hover:scale-105 shadow-[0_4px_15px_rgba(37,99,235,0.3)] flex items-center justify-center"
+                          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white p-5 rounded-full transition-transform hover:scale-105 shadow-[0_4px_15px_rgba(37,99,235,0.3)]"
                         >
-                          {uiState.status === 'playing' ? <i className="fas fa-pause text-xl"></i> : <i className="fas fa-play text-xl ml-1"></i>}
+                          {uiState.status === 'playing' ? <i className="fas fa-pause w-5 h-5 flex justify-center items-center"></i> : <i className="fas fa-play w-5 h-5 flex justify-center items-center"></i>}
                         </button>
                         <button 
                           onClick={resetSimState} 
-                          className="bg-slate-800 hover:bg-slate-700 text-white p-5 rounded-full transition-transform hover:scale-105 flex items-center justify-center"
+                          className="bg-slate-800 hover:bg-slate-700 text-white p-5 rounded-full transition-transform hover:scale-105"
                         >
-                          <i className="fas fa-rotate-left text-xl"></i>
+                          <i className="fas fa-rotate w-5 h-5 flex justify-center items-center"></i>
                         </button>
                       </div>
 
                       <div>
-                        <label className="text-xs text-slate-400 block mb-1">Moteur (Latence): {simSpeed}ms</label>
+                        <label className="text-xs text-slate-400 block mb-1">Moteur (Vitesse): {simSpeed}ms</label>
                         <input 
                           type="range" 
                           min="5" 
@@ -1519,7 +1586,7 @@ Joseph WollG82ButterflyElite8483848177`;
                           <span className="text-white font-bold">{uiState.stats.home.team.foWins} - {uiState.stats.away.team.foWins}</span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-400">Mises en échec (total)</span>
+                          <span className="text-slate-400">Mises en échec</span>
                           <span className="text-white font-bold">{aggregated.hits[0]} - {aggregated.hits[1]}</span>
                         </div>
                       </div>
@@ -1530,7 +1597,7 @@ Joseph WollG82ButterflyElite8483848177`;
                         onClick={() => setActiveTab('results')} 
                         className="w-full bg-emerald-600 hover:bg-emerald-500 text-white py-3 rounded-xl font-bold flex justify-center items-center mt-6 transition-all"
                       >
-                        <i className="fas fa-chart-bar w-4 h-4 mr-2"></i> ACCÉDER AUX EXPORTS SHEETS
+                        <i className="fas fa-chart-bar mr-2"></i> ACCÉDER AUX EXPORTS
                       </button>
                     )}
                   </div>
@@ -1538,10 +1605,10 @@ Joseph WollG82ButterflyElite8483848177`;
                   <div className="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-2xl flex flex-col h-96 overflow-hidden">
                     <div className="bg-slate-950 p-4 border-b border-slate-800 flex items-center justify-between">
                       <span className="text-white font-bold text-sm flex items-center">
-                        <i className="fas fa-chart-line w-4 h-4 mr-2 text-emerald-500 animate-pulse"></i> Journal Broadcast LNH
+                        <i className="fas fa-broadcast-tower mr-2 text-emerald-500 animate-pulse"></i> Journal Broadcast NHL
                       </span>
                     </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
+                    <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs custom-scrollbar">
                       {uiState.events.map(ev => (
                         <div key={ev.id} className={`p-2 rounded-lg border-l-4 bg-slate-950/40 flex items-start space-x-2 transition-all ${
                           ev.type === 'goal' ? 'border-emerald-500 text-emerald-100 bg-emerald-950/5' :
@@ -1562,9 +1629,9 @@ Joseph WollG82ButterflyElite8483848177`;
 
           const renderComparisonRow = (label, valueHome, valueAway, bold = false) => (
             <div className="flex justify-between items-center py-2 border-b border-slate-800/40 text-sm">
-              <span className={`w-24 text-left font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueHome}</span>
-              <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold">{label}</span>
-              <span className={`w-24 text-right font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueAway}</span>
+              <span className={`w-28 text-left font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueHome}</span>
+              <span className="text-xs text-slate-500 uppercase tracking-wider font-semibold text-center flex-1">{label}</span>
+              <span className={`w-28 text-right font-mono ${bold ? 'font-black text-white' : 'text-slate-300'}`}>{valueAway}</span>
             </div>
           );
 
@@ -1579,6 +1646,8 @@ Joseph WollG82ButterflyElite8483848177`;
               );
             }
 
+            const aggregated = aggregateStats();
+
             const renderExportTable = (tid, title, isGoalie = false) => {
               const pData = isGoalie ? [lines[tid].goalies.starter, lines[tid].goalies.backup].filter(Boolean) : [
                 ...lines[tid].forwards.l1, ...lines[tid].forwards.l2, ...lines[tid].forwards.l3, ...lines[tid].forwards.l4,
@@ -1586,13 +1655,14 @@ Joseph WollG82ButterflyElite8483848177`;
               ].filter(Boolean);
               const sData = isGoalie ? uiState.stats[tid].goalies : uiState.stats[tid].skaters;
               const tableId = `table_${tid}_${isGoalie ? 'g' : 's'}`;
+              const wentToOT = uiState.period >= 4;
 
               return (
-                <div className="bg-sky-50 border border-sky-200 rounded-2xl overflow-hidden space-y-3 p-4">
+                <div className="bg-sky-50 border border-sky-100 rounded-2xl overflow-hidden space-y-3 p-4">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-sky-200">
                     <div>
-                      <h3 className="text-blue-950 font-bold text-sm flex items-center">
-                        <i className="fas fa-file-lines w-4 h-4 mr-2 text-blue-600"></i> {tid === 'home' ? homeTeamName : awayTeamName} - {title}
+                      <h3 className="text-sky-950 font-bold text-sm flex items-center">
+                        <i className="fas fa-file-excel mr-2 text-emerald-600"></i> {tid === 'home' ? homeTeamName : awayTeamName} - {title}
                       </h3>
                       <p className="text-xs text-sky-800">Prêt pour transfert direct Excel / Google Sheets.</p>
                     </div>
@@ -1600,65 +1670,100 @@ Joseph WollG82ButterflyElite8483848177`;
                       onClick={() => handleCopyTable(tableId)}
                       className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg flex items-center transition-all"
                     >
-                      {isCopied === tableId ? <i className="fas fa-check w-3.5 h-3.5 mr-1 text-white"></i> : <i className="fas fa-clipboard w-3.5 h-3.5 mr-1"></i>}
+                      {isCopied === tableId ? <i className="fas fa-check mr-1 text-white"></i> : <i className="fas fa-copy mr-1"></i>}
                       {isCopied === tableId ? "Copié !" : "Copier"}
                     </button>
                   </div>
 
                   <div className="overflow-x-auto">
-                    <table id={tableId} className="w-full text-xs text-left text-blue-950 whitespace-nowrap">
-                      <thead className="bg-sky-100 text-blue-900 uppercase font-mono">
+                    <table id={tableId} className="w-full text-xs text-left text-sky-950 whitespace-nowrap">
+                      <thead className="bg-sky-100 text-sky-900 uppercase font-mono">
                         <tr>
                           {!isGoalie ? (
                             <>
-                              <th className="px-3 py-2">Nom</th><th className="px-2 py-2">POS</th><th className="px-2 py-2">MJ</th>
-                              <th className="px-2 py-2">B</th><th className="px-2 py-2">A</th><th className="px-2 py-2">PTS</th>
-                              <th className="px-2 py-2">+/-</th><th className="px-2 py-2">Pun</th><th className="px-2 py-2">OVR</th>
-                              <th className="px-2 py-2">Style EA</th><th className="px-2 py-2">Physique</th><th className="px-2 py-2">Tir</th>
-                              <th className="px-2 py-2">Création de jeu</th><th className="px-2 py-2">Défensive</th><th className="px-2 py-2">Patinage</th>
-                              <th className="px-2 py-2">Offensive</th><th className="px-2 py-2">Maniement de rondelle</th>
+                              <th className="px-3 py-2">Nom</th>
+                              <th className="px-2 py-2">POS</th>
+                              <th className="px-2 py-2">MJ</th>
+                              <th className="px-2 py-2">B</th>
+                              <th className="px-2 py-2">A</th>
+                              <th className="px-2 py-2">PTS</th>
+                              <th className="px-2 py-2">+/-</th>
+                              <th className="px-2 py-2">Pun</th>
+                              <th className="px-2 py-2">OVR</th>
+                              <th className="px-2 py-2">Style EA</th>
+                              <th className="px-2 py-2">Physique</th>
+                              <th className="px-2 py-2">Tir</th>
+                              <th className="px-2 py-2">Création de jeu</th>
+                              <th className="px-2 py-2">Défensive</th>
+                              <th className="px-2 py-2">Patinage</th>
+                              <th className="px-2 py-2">Offensive</th>
+                              <th className="px-2 py-2">Maniement de rondelle</th>
                             </>
                           ) : (
                             <>
-                              <th className="px-3 py-2">Nom</th><th className="px-2 py-2">Âge</th><th className="px-2 py-2">Pays</th>
-                              <th className="px-2 py-2">MJ</th><th className="px-2 py-2">MA</th><th className="px-2 py-2">V</th>
-                              <th className="px-2 py-2">D</th><th className="px-2 py-2">N</th><th className="px-2 py-2">DP</th>
-                              <th className="px-2 py-2">Moy</th><th className="px-2 py-2">% arrêts</th><th className="px-2 py-2">TC</th>
-                              <th className="px-2 py-2">Arrêts</th><th className="px-2 py-2">BC</th>
+                              <th className="px-3 py-2">Nom</th>
+                              <th className="px-2 py-2">Âge</th>
+                              <th className="px-2 py-2">Pays</th>
+                              <th className="px-2 py-2">MJ</th>
+                              <th className="px-2 py-2">MA</th>
+                              <th className="px-2 py-2">V</th>
+                              <th className="px-2 py-2">D</th>
+                              <th className="px-2 py-2">N</th>
+                              <th className="px-2 py-2">DP</th>
+                              <th className="px-2 py-2">Moy</th>
+                              <th className="px-2 py-2">% arrêts</th>
+                              <th className="px-2 py-2">TC</th>
+                              <th className="px-2 py-2">Arrêts</th>
+                              <th className="px-2 py-2">BC</th>
                             </>
                           )}
                         </tr>
                       </thead>
                       <tbody>
                         {pData.map(p => {
-                          const s = sData[p.id] || { gp:0, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0, mins:0, sa:0, sv:0, ga:0, w:0, l:0, otl:0 };
+                          const s = sData[p.id] || { gp:0, g:0, a:0, pts:0, pm:0, pim:0, toi:0, shots:0, hits:0, mins:0, sa:0, sv:0, ga:0 };
                           if (isGoalie) {
-                            const playedMatch = s.mins > 0 ? 1 : 0;
                             const svPct = s.sa > 0 ? (s.sv / s.sa).toFixed(3) : '.000';
                             const gaa = s.mins > 0 ? ((s.ga * 60) / s.mins).toFixed(2) : '0.00';
+                            const playedMatch = s.mins > 0 ? 1 : 0; 
+                            const outcomeVal = s.ga < (tid === 'home' ? uiState.awayScore : uiState.homeScore);
                             return (
-                              <tr key={p.id} className="border-b border-sky-100 hover:bg-sky-200/50 font-mono">
-                                <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
-                                <td className="px-2 py-2">{p.age}</td><td className="px-2 py-2">{p.country}</td>
-                                <td className="px-2 py-2">{playedMatch}</td><td className="px-2 py-2">{Math.floor(s.mins)}</td>
-                                <td className="px-2 py-2">{s.w}</td><td className="px-2 py-2">{s.l}</td>
-                                <td className="px-2 py-2">0</td><td className="px-2 py-2">{s.otl}</td><td className="px-2 py-2">{gaa}</td>
-                                <td className="px-2 py-2">{svPct.replace('0.', '.')}</td><td className="px-2 py-2">{s.sa}</td>
-                                <td className="px-2 py-2">{s.sv}</td><td className="px-2 py-2 text-red-600 font-bold">{s.ga}</td>
+                              <tr key={p.id} className="border-b border-sky-200/50 hover:bg-sky-100/40 font-mono">
+                                <td className="px-3 py-2 font-bold text-sky-950 font-sans">{p.name}</td>
+                                <td className="px-2 py-2">{p.age}</td>
+                                <td className="px-2 py-2">{p.country}</td>
+                                <td className="px-2 py-2">{playedMatch}</td>
+                                <td className="px-2 py-2">{Math.floor(s.mins)}</td>
+                                <td className="px-2 py-2">{playedMatch && outcomeVal ? 1 : 0}</td>
+                                <td className="px-2 py-2">{playedMatch && !outcomeVal ? 1 : 0}</td>
+                                <td className="px-2 py-2">0</td>
+                                <td className="px-2 py-2">{playedMatch && wentToOT && !outcomeVal ? 1 : 0}</td>
+                                <td className="px-2 py-2">{gaa}</td>
+                                <td className="px-2 py-2">{svPct.replace('0.', '.')}</td>
+                                <td className="px-2 py-2">{s.sa}</td>
+                                <td className="px-2 py-2">{s.sv}</td>
+                                <td className="px-2 py-2 text-red-600 font-bold">{s.ga}</td>
                               </tr>
                             );
                           } else {
                             return (
-                              <tr key={p.id} className="border-b border-sky-100 hover:bg-sky-200/50 font-mono">
-                                <td className="px-3 py-2 font-bold text-blue-950 font-sans">{p.name}</td>
-                                <td className="px-2 py-2">{p.pos}</td><td className="px-2 py-2">1</td>
-                                <td className="px-2 py-2">{s.g}</td><td className="px-2 py-2">{s.a}</td>
+                              <tr key={p.id} className="border-b border-sky-200/50 hover:bg-sky-100/40 font-mono">
+                                <td className="px-3 py-2 font-bold text-sky-950 font-sans">{p.name}</td>
+                                <td className="px-2 py-2">{p.pos}</td>
+                                <td className="px-2 py-2">1</td>
+                                <td className="px-2 py-2">{s.g}</td>
+                                <td className="px-2 py-2">{s.a}</td>
                                 <td className="px-2 py-2 font-bold text-emerald-600">{s.pts}</td>
-                                <td className="px-2 py-2">{s.pm > 0 ? `+${s.pm}` : s.pm}</td><td className="px-2 py-2">{s.pim}</td>
-                                <td className="px-2 py-2 text-blue-700 font-bold">{p.ovr}</td><td className="px-2 py-2 font-sans">{p.style}</td>
-                                <td className="px-2 py-2">{p.phy}</td><td className="px-2 py-2">{p.sht}</td>
-                                <td className="px-2 py-2">{p.pla}</td><td className="px-2 py-2">{p.def}</td>
-                                <td className="px-2 py-2">{p.ska}</td><td className="px-2 py-2">{p.off}</td>
+                                <td className="px-2 py-2">{s.pm > 0 ? `+${s.pm}` : s.pm}</td>
+                                <td className="px-2 py-2">{s.pim}</td>
+                                <td className="px-2 py-2 text-blue-700 font-bold">{p.ovr}</td>
+                                <td className="px-2 py-2 font-sans text-sky-900">{p.style}</td>
+                                <td className="px-2 py-2">{p.phy}</td>
+                                <td className="px-2 py-2">{p.sht}</td>
+                                <td className="px-2 py-2">{p.pla}</td>
+                                <td className="px-2 py-2">{p.def}</td>
+                                <td className="px-2 py-2">{p.ska}</td>
+                                <td className="px-2 py-2">{p.off}</td>
                                 <td className="px-2 py-2">{p.phn}</td>
                               </tr>
                             );
@@ -1673,6 +1778,40 @@ Joseph WollG82ButterflyElite8483848177`;
 
             return (
               <div className="space-y-8 animate-in fade-in duration-300">
+                <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+                  <div className="absolute top-0 right-0 w-64 h-64 bg-blue-600/5 blur-[80px] pointer-events-none rounded-full" />
+                  <h3 className="text-white font-black text-sm uppercase tracking-wider mb-5 flex items-center">
+                    <i className="fas fa-chart-bar mr-2 text-blue-500"></i> Statistiques finales de la partie
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-1">
+                    {renderComparisonRow("Tirs au but", aggregated.shots[0], aggregated.shots[1], true)}
+                    {renderComparisonRow("Buts", aggregated.goals[0], aggregated.goals[1], true)}
+                    {renderComparisonRow("Chances de marquer", aggregated.chances[0], aggregated.chances[1])}
+                    {renderComparisonRow("Chances dangereuses", aggregated.dangerChances[0], aggregated.dangerChances[1])}
+                    {renderComparisonRow("Mises en échec", aggregated.hits[0], aggregated.hits[1])}
+                    {renderComparisonRow("Tirs bloqués", aggregated.blocks[0], aggregated.blocks[1])}
+                    {renderComparisonRow("Revirements provoqués", aggregated.takeaways[0], aggregated.takeaways[1])}
+                    {renderComparisonRow("Revirements causés", aggregated.giveaways[0], aggregated.giveaways[1])}
+                    {renderComparisonRow("Entrées de zone réussies", aggregated.entries[0], aggregated.entries[1])}
+                    {renderComparisonRow("Sorties de zone réussies", aggregated.exits[0], aggregated.exits[1])}
+                    {renderComparisonRow(
+                      "Mises au jeu gagnées", 
+                      getFaceoffDisplay(0, aggregated), 
+                      getFaceoffDisplay(1, aggregated)
+                    )}
+                    {renderComparisonRow(
+                      "Avantage numérique", 
+                      `${aggregated.ppGoals[0]}/${aggregated.ppOpps[0]}`,
+                      `${aggregated.ppGoals[1]}/${aggregated.ppOpps[1]}`
+                    )}
+                    {renderComparisonRow(
+                      "Désavantage numérique", 
+                      getPKDisplay(0, aggregated), 
+                      getPKDisplay(1, aggregated)
+                    )}
+                  </div>
+                </div>
+
                 {uiState.injuries.length > 0 && (
                   <div className="bg-red-950/20 border border-red-900/60 p-4 rounded-2xl">
                     <h3 className="text-red-400 font-bold text-sm flex items-center mb-3">
@@ -1706,13 +1845,13 @@ Joseph WollG82ButterflyElite8483848177`;
                 <header className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-6 border-b border-slate-900">
                   <div>
                     <h1 className="text-2xl font-black text-white tracking-tight flex items-center">
-                      <i className="fas fa-shield-halved w-7 h-7 mr-2.5 text-blue-500 flex items-center"></i>
-                      EA SPORTS <span className="text-blue-500 ml-1.5 font-bold">PRO SIMULATOR LNH</span>
+                      <i className="fas fa-shield-halved mr-2.5 text-blue-500"></i>
+                      EA SPORTS <span className="text-blue-500 ml-1.5 font-bold">PRO SIMULATOR</span>
                     </h1>
                     <p className="text-slate-500 text-xs mt-1 uppercase tracking-wider font-semibold">Analyse stratégique avancée & Confrontations par présences</p>
                   </div>
                   <span className="text-[10px] bg-slate-900 text-slate-400 border border-slate-850 px-3 py-1.5 rounded-full font-mono font-bold">
-                    BUILD 2026.2.14 - PRO-ULTIMATE - LIVE VERSION
+                    BUILD 2026.1.18 - PRO-LITE
                   </span>
                 </header>
 
@@ -1731,7 +1870,7 @@ Joseph WollG82ButterflyElite8483848177`;
                           : 'text-slate-400 hover:text-white hover:bg-slate-800/40'
                       }`}
                     >
-                      <i className={`fas ${tab.icon} w-3.5 h-3.5 mr-2 text-center`}></i>
+                      <i className={`fas ${tab.icon} mr-2`}></i>
                       {tab.label}
                     </button>
                   ))}
